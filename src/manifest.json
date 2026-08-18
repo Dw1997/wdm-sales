@@ -1,0 +1,83 @@
+{
+  "name": "副食批发 · 销售端",
+  "appid": "__UNI__SALESAPP",
+  "description": "副食批发平台销售端：拓客推广 + 移动 CRM + 代客下单",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "app-plus": {
+    "usingComponents": true,
+    "nvueStyleCompiler": "uni-app",
+    "compilerVersion": 3,
+    "splashscreen": {
+      "alwaysShowBeforeRender": true,
+      "waiting": true,
+      "autoclose": true,
+      "delay": 0
+    },
+    "modules": {
+      "Camera": {},
+      "Geolocation": {},
+      "Bluetooth": {}
+    },
+    "distribute": {
+      "android": {
+        "permissions": [
+          "<uses-permission android:name=\"android.permission.CHANGE_NETWORK_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_NETWORK_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_WIFI_STATE\"/>",
+          "<uses-permission android:name=\"android.permission.CAMERA\"/>",
+          "<uses-permission android:name=\"android.permission.INTERNET\"/>",
+          "<uses-permission android:name=\"android.permission.WRITE_EXTERNAL_STORAGE\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>",
+          "<uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\"/>",
+          "<uses-permission android:name=\"android.permission.BLUETOOTH\"/>",
+          "<uses-permission android:name=\"android.permission.BLUETOOTH_ADMIN\"/>",
+          "<uses-permission android:name=\"android.permission.VIBRATE\"/>",
+          "<uses-feature android:name=\"android.hardware.camera\"/>",
+          "<uses-feature android:name=\"android.hardware.camera.autofocus\"/>"
+        ]
+      },
+      "ios": {},
+      "sdkConfigs": {
+        "maps": {
+          "amap": {
+            "appkey_ios": "",
+            "appkey_android": ""
+          }
+        }
+      }
+    }
+  },
+  "quickapp": {},
+  "mp-weixin": {
+    "appid": "",
+    "setting": {
+      "urlCheck": false,
+      "es6": true,
+      "postcss": true,
+      "minified": true
+    },
+    "usingComponents": true,
+    "permission": {
+      "scope.userLocation": {
+        "desc": "拜访签到需要您的地理位置"
+      }
+    }
+  },
+  "h5": {
+    "router": {
+      "mode": "history",
+      "base": "./"
+    },
+    "devServer": {
+      "port": 9080,
+      "https": false
+    },
+    "title": "副食批发 · 销售端"
+  },
+  "uniStatistics": {
+    "enable": false
+  },
+  "vueVersion": "3"
+}
