@@ -19,7 +19,7 @@
             <text class="summary-label">销售额</text>
           </view>
           <view class="summary-item">
-            <text class="summary-value text-warning text-money">¥{{ formatQty(performance.estimated_commission.toFixed(2)) }}</text>
+            <text class="summary-value text-warning text-money">¥{{ formatQty(Number(performance.estimated_commission.toFixed(2))) }}</text>
             <text class="summary-label">预估提成</text>
           </view>
           <view class="summary-item">
@@ -54,7 +54,7 @@
                 <text class="rank-divider">·</text>
                 <text class="rank-stat">{{ r.order_count }} 单</text>
                 <text class="rank-divider">·</text>
-                <text class="rank-stat text-warning">提成 ¥{{ formatQty(r.estimated_commission.toFixed(2)) }}</text>
+                <text class="rank-stat text-warning">提成 ¥{{ formatQty(Number(r.estimated_commission.toFixed(2))) }}</text>
               </view>
             </view>
           </view>

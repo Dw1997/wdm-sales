@@ -25,7 +25,6 @@ dist
 .vscode/
 
 # Screenshots
-*.png
 screenshot_*
 
 # Utility scripts

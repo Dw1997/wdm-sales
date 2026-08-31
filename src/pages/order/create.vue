@@ -69,7 +69,7 @@
         </view>
         <view class="cart-amount">
           <text class="amount-label">合计</text>
-          <text class="amount">¥{{ formatQty(cart.totalAmount.toFixed(2)) }}</text>
+          <text class="amount">¥{{ formatQty(Number(cart.totalAmount.toFixed(2))) }}</text>
         </view>
       </view>
       <button class="btn-primary next-btn" :disabled="cart.isEmpty" @tap="goCart">查看购物车</button>

@@ -71,7 +71,7 @@
       "base": "./"
     },
     "devServer": {
-      "port": 9080,
+      "port": 9022,
       "https": false
     },
     "title": "副食批发 · 销售端"

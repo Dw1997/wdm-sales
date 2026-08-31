@@ -27,7 +27,7 @@
           </view>
           <view class="credit-item">
             <text class="credit-label">本单</text>
-            <text class="credit-value text-warning">¥{{ formatQty(cart.totalAmount.toFixed(2)) }}</text>
+            <text class="credit-value text-warning">¥{{ formatQty(Number(cart.totalAmount.toFixed(2))) }}</text>
           </view>
         </view>
         <view v-if="credit.available_credit < cart.totalAmount" class="credit-warn">
@@ -47,7 +47,7 @@
         </view>
         <view class="total-row">
           <text class="total-label">合计</text>
-          <text class="total-amount">¥{{ formatQty(cart.totalAmount.toFixed(2)) }}</text>
+          <text class="total-amount">¥{{ formatQty(Number(cart.totalAmount.toFixed(2))) }}</text>
         </view>
       </view>
 
@@ -71,7 +71,7 @@
     <view class="bottom-bar">
       <view class="amount-wrap">
         <text class="amount-label">应付</text>
-        <text class="amount">¥{{ formatQty(cart.totalAmount.toFixed(2)) }}</text>
+        <text class="amount">¥{{ formatQty(Number(cart.totalAmount.toFixed(2))) }}</text>
       </view>
       <button class="btn-primary submit-btn" :loading="submitting" @tap="onSubmit">提交订单</button>
     </view>
@@ -94,7 +94,7 @@ const submitting = ref(false)
 
 const defaultCover = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect width="200" height="200" fill="%23f3f4f6"/><text x="100" y="105" text-anchor="middle" font-size="60" fill="%239ca3af">📦</text></svg>'
 
-const paymentOpts = [
+const paymentOpts: { value: Order['payment_method']; label: string; icon: string }[] = [
   { value: 'credit', label: '账期挂账', icon: '💳' },
   { value: 'online', label: '在线支付', icon: '⚡' },
   { value: 'wechat', label: '微信', icon: '💚' },

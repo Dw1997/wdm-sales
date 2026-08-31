@@ -35,7 +35,7 @@
     <view v-if="cart.items.length" class="bottom-bar">
       <view class="total-wrap">
         <text class="total-label">合计</text>
-        <text class="total">¥{{ formatQty(cart.totalAmount.toFixed(2)) }}</text>
+        <text class="total">¥{{ formatQty(Number(cart.totalAmount.toFixed(2))) }}</text>
       </view>
       <button class="btn-primary submit-btn" @tap="goConfirm">去结算 ({{ cart.totalCount }})</button>
     </view>

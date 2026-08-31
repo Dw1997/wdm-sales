@@ -50,7 +50,7 @@ const form = reactive<{ type: FollowUp['type']; content: string }>({
   content: '',
 })
 
-const typeOpts = [
+const typeOpts: { value: FollowUp['type']; label: string; icon: string }[] = [
   { value: 'visit', label: '上门', icon: '🚶' },
   { value: 'phone', label: '电话', icon: '📞' },
   { value: 'wechat', label: '微信', icon: '💬' },

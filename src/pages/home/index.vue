@@ -29,7 +29,7 @@
       <view class="kpi-section">
         <view class="kpi-row">
           <stat-card icon="💰" label="今日 GMV" :value="'¥' + formatQty(dashboard?.today_gmv || 0)" :extra="`订单 ${dashboard?.today_orders || 0} 单`" bg="linear-gradient(135deg, #2563eb, #3b82f6)" />
-          <stat-card icon="🏆" label="本月 GMV" :value="'¥' + formatQty(dashboard?.month_gmv || 0)" :extra="`预估提成 ¥${formatQty((dashboard?.month_estimated_commission || 0).toFixed(2))}`" bg="linear-gradient(135deg, #ea580c, #f59e0b)" />
+          <stat-card icon="🏆" label="本月 GMV" :value="'¥' + formatQty(dashboard?.month_gmv || 0)" :extra="`预估提成 ¥${formatQty(Number((dashboard?.month_estimated_commission || 0).toFixed(2)))}`" bg="linear-gradient(135deg, #ea580c, #f59e0b)" />
         </view>
         <view class="kpi-row">
           <stat-card icon="👥" label="本月新客" :value="dashboard?.month_new_customers || 0" :extra="`待审核 ${dashboard?.pending_approvals || 0}`" bg="linear-gradient(135deg, #16a34a, #22c55e)" />

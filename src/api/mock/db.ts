@@ -22,7 +22,6 @@ export const salesList: (Sales & { username: string })[] = [
     region: '城东区',
     avatar: '',
     username: 'sales01',
-    role: 'sales' as const,
   },
   {
     id: 2,
@@ -39,7 +38,6 @@ export const salesList: (Sales & { username: string })[] = [
     region: '城西区',
     avatar: '',
     username: 'sales02',
-    role: 'sales' as const,
   },
   {
     id: 3,
@@ -56,7 +54,6 @@ export const salesList: (Sales & { username: string })[] = [
     region: '城南区',
     avatar: '',
     username: 'sales03',
-    role: 'sales' as const,
   },
 ]
 

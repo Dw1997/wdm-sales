@@ -3,7 +3,7 @@
 
 import { authService } from './mock/services'
 
-const BASE_URL = '' // empty: use mock; set to e.g. 'http://localhost:9000/api/v1' for real backend
+const BASE_URL = 'http://localhost:9020' // empty: use mock; set to e.g. 'http://localhost:9000/api/v1' for real backend
 const USE_MOCK = !BASE_URL
 
 export interface RequestOptions {
