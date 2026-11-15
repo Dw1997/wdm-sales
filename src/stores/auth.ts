@@ -29,30 +29,23 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function login(username: string, password: string) {
-    const tokens = await authApi.login(username, password)
+  async function login(phone: string, password: string) {
+    const tokens = await authApi.login(phone, password)
     accessToken.value = tokens.access_token
     refreshToken.value = tokens.refresh_token
     uni.setStorageSync(ACCESS_KEY, tokens.access_token)
     uni.setStorageSync(REFRESH_KEY, tokens.refresh_token)
     setTokenGetter(() => accessToken.value)
-    await fetchMe()
+    try {
+      await fetchMe()
+    } catch (error) {
+      await logout()
+      throw error
+    }
   }
 
   async function fetchMe() {
-    try {
-      user.value = await authApi.me()
-    } catch {
-      user.value = {
-        id: 1,
-        username: 'sales01',
-        real_name: '张推广',
-        phone: '13800138001',
-        role: 'sales',
-        invite_code: 'SALE001',
-        region: '城东区',
-      }
-    }
+    user.value = await authApi.me()
   }
 
   async function logout() {

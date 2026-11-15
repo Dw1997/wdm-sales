@@ -3,7 +3,7 @@
 
 import { authService } from './mock/services'
 
-const BASE_URL = 'http://localhost:9020' // empty: use mock; set to e.g. 'http://localhost:9000/api/v1' for real backend
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:9000/api/v1'
 const USE_MOCK = !BASE_URL
 
 export interface RequestOptions {
@@ -149,11 +149,13 @@ export async function request<T = any>(opts: RequestOptions): Promise<T> {
         success: (res) => {
           const status = res.statusCode || 200
           if (status >= 200 && status < 300) {
-            resolve(res.data as T)
+            resolve((res.data as { data: T }).data)
           } else if (status === 401) {
-            uni.removeStorageSync('wdm_sales_access')
-            uni.reLaunch({ url: '/pages/auth/login' })
-            reject(new Error('未授权'))
+            if (token) {
+              uni.removeStorageSync('wdm_sales_access')
+              uni.reLaunch({ url: '/pages/auth/login' })
+            }
+            reject(new Error((res.data as any)?.message || '登录状态已失效'))
           } else {
             const detail = (res.data as any)?.detail || (res.data as any)?.message || '请求失败'
             uni.showToast({ title: String(detail), icon: 'none' })

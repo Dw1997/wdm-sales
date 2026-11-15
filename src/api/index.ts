@@ -21,8 +21,8 @@ import type {
 } from '@/types'
 
 export const authApi = {
-  login: (username: string, password: string) =>
-    request<TokenResponse>({ url: '/auth/login', method: 'POST', data: { username, password }, showLoading: false }),
+  login: (phone: string, password: string) =>
+    request<TokenResponse>({ url: '/auth/login', method: 'POST', data: { phone, password, platform: 'app' }, showLoading: false }),
   me: () => request<UserInfo>({ url: '/auth/me', showLoading: false }),
   logout: () => request<void>({ url: '/auth/logout', method: 'POST', showLoading: false }),
 }

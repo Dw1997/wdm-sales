@@ -9,17 +9,14 @@
       </view>
       <view class="form">
         <view class="form-item">
-          <text class="form-label">账号</text>
-          <input class="form-input" v-model="form.username" placeholder="请输入账号" />
+          <text class="form-label">手机号</text>
+          <input class="form-input" v-model="form.phone" type="number" maxlength="11" placeholder="请输入手机号" />
         </view>
         <view class="form-item">
           <text class="form-label">密码</text>
           <input class="form-input" v-model="form.password" :password="true" placeholder="请输入密码 (≥6位)" />
         </view>
         <button class="btn-primary" :loading="loading" @tap="onLogin">登录</button>
-        <view class="tips">
-          <text>演示账号：sales01 / 任意 6 位以上密码</text>
-        </view>
       </view>
     </view>
   </view>
@@ -32,7 +29,7 @@ import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const loading = ref(false)
-const form = reactive({ username: 'sales01', password: '123456' })
+const form = reactive({ phone: '', password: '' })
 const redirect = ref('')
 
 onLoad((opts: any) => {
@@ -48,8 +45,8 @@ onMounted(() => {
 })
 
 async function onLogin() {
-  if (!form.username) {
-    uni.showToast({ title: '请输入账号', icon: 'none' })
+  if (!/^1[3-9]\d{9}$/.test(form.phone)) {
+    uni.showToast({ title: '请输入正确的手机号', icon: 'none' })
     return
   }
   if (form.password.length < 6) {
@@ -58,7 +55,7 @@ async function onLogin() {
   }
   loading.value = true
   try {
-    await auth.login(form.username, form.password)
+    await auth.login(form.phone, form.password)
     uni.showToast({ title: '登录成功', icon: 'success' })
     setTimeout(() => {
       uni.reLaunch({ url: redirect.value })
