@@ -1,0 +1,291 @@
+// 管理员审批二级页共用样式（客户审核 / 订单审批 / 调额审批 / 退货确认）。
+// 页面结构一致：自定义导航 + 列表 + 底部抽屉，故样式集中在这里。
+
+.approve-page {
+  min-height: 100vh;
+  background: #f4f6f9;
+}
+
+.nav-count {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: $uni-color-primary;
+  background: rgba(37, 99, 235, 0.1);
+  border-radius: 20rpx;
+  padding: 4rpx 14rpx;
+}
+
+.content {
+  height: 100vh;
+  box-sizing: border-box;
+}
+/* H5 的 tabBar 不在这类二级页出现，保持整屏 */
+/* #ifdef H5 */
+.content {
+  height: calc(100vh - 50px);
+}
+/* #endif */
+
+.wrap {
+  padding: 16rpx 24rpx 120rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+
+.row-card {
+  padding: 24rpx;
+}
+
+.rc-hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+.rc-name {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #1f2937;
+}
+.rc-amount {
+  font-size: 30rpx;
+  font-weight: 700;
+  color: #1f2937;
+  font-variant-numeric: tabular-nums;
+}
+.rc-time {
+  font-size: 21rpx;
+  color: #8894a5;
+}
+.rc-meta {
+  margin-top: 10rpx;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  font-size: 23rpx;
+  color: #4b5563;
+}
+.rc-own,
+.rc-sub {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 23rpx;
+  color: #6b7280;
+  line-height: 1.5;
+}
+.rc-own {
+  color: #8894a5;
+  font-size: 22rpx;
+}
+.rc-nums {
+  display: flex;
+  gap: 24rpx;
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: #6b7280;
+}
+.rc-nums .k {
+  color: #8894a5;
+}
+.rc-nums .v {
+  color: #1f2937;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.rc-nums .danger .v {
+  color: #dc2626;
+}
+.rc-acts {
+  margin-top: 20rpx;
+  display: flex;
+  gap: 16rpx;
+}
+.rc-acts button {
+  flex: 1;
+  margin: 0;
+}
+.act {
+  height: 72rpx;
+  line-height: 68rpx;
+  font-size: 27rpx;
+}
+
+.mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(16, 25, 42, 0.45);
+  z-index: 90;
+  display: flex;
+  align-items: flex-end;
+}
+.sheet {
+  width: 100%;
+  background: #fff;
+  border-radius: 28rpx 28rpx 0 0;
+  padding: 32rpx 28rpx;
+  padding-bottom: calc(32rpx + env(safe-area-inset-bottom));
+  max-height: 84vh;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+.sheet-title {
+  display: block;
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #1f2937;
+}
+.sheet-sub {
+  display: block;
+  margin-top: 8rpx;
+  font-size: 23rpx;
+  color: #8894a5;
+}
+.field {
+  margin-top: 24rpx;
+}
+.field-label {
+  display: block;
+  font-size: 24rpx;
+  color: #6b7889;
+  margin-bottom: 10rpx;
+}
+.picker {
+  height: 84rpx;
+  line-height: 84rpx;
+  padding: 0 24rpx;
+  background: #f7f9fc;
+  border-radius: 14rpx;
+  font-size: 27rpx;
+  color: #1f2937;
+}
+.textarea {
+  width: 100%;
+  min-height: 150rpx;
+  padding: 20rpx;
+  background: #f7f9fc;
+  border-radius: 14rpx;
+  font-size: 27rpx;
+  box-sizing: border-box;
+}
+.sheet-btn {
+  margin-top: 32rpx;
+}
+.hint {
+  display: block;
+  margin-top: 12rpx;
+  font-size: 21rpx;
+  color: #8894a5;
+  line-height: 1.5;
+}
+.warn-text {
+  color: #dc2626;
+}
+
+/* 明细表（订单 / 退货） */
+.items {
+  margin-top: 16rpx;
+  border: 1rpx solid #eef1f5;
+  border-radius: 14rpx;
+  overflow: hidden;
+}
+.item-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 16rpx 20rpx;
+  font-size: 24rpx;
+  border-top: 1rpx solid #eef1f5;
+}
+.item-row:first-child {
+  border-top: 0;
+  background: #fbfcfe;
+  color: #8894a5;
+  font-size: 21rpx;
+}
+.item-row .nm {
+  flex: 1;
+  min-width: 0;
+  color: #1f2937;
+}
+.item-row .qt {
+  width: 100rpx;
+  text-align: right;
+  color: #6b7280;
+}
+.item-row .am {
+  width: 140rpx;
+  text-align: right;
+  font-weight: 600;
+  color: #1f2937;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 审批记录时间线 */
+.timeline {
+  margin-top: 16rpx;
+  padding-left: 20rpx;
+  border-left: 2rpx solid #eef1f5;
+}
+.tl-node {
+  position: relative;
+  padding-bottom: 20rpx;
+}
+.tl-node::before {
+  content: '';
+  position: absolute;
+  left: -29rpx;
+  top: 8rpx;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: #cbd5e1;
+}
+.tl-node.done::before {
+  background: #16a34a;
+}
+.tl-title {
+  display: block;
+  font-size: 24rpx;
+  color: #1f2937;
+  font-weight: 600;
+}
+.tl-sub {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 21rpx;
+  color: #8894a5;
+}
+
+/* 结算预览 */
+.settle {
+  margin-top: 16rpx;
+  border: 1rpx solid #eef1f5;
+  border-radius: 14rpx;
+  overflow: hidden;
+}
+.settle-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 16rpx 20rpx;
+  font-size: 24rpx;
+  border-top: 1rpx solid #eef1f5;
+}
+.settle-row:first-child {
+  border-top: 0;
+  background: #fbfcfe;
+  color: #8894a5;
+  font-size: 21rpx;
+}
+.settle-row .lb {
+  color: #6b7889;
+}
+.settle-row .vl {
+  color: #1f2937;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
