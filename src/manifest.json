@@ -68,13 +68,22 @@
   "h5": {
     "router": {
       "mode": "history",
-      "base": "./"
+      "base": "/"
     },
     "devServer": {
       "port": 9022,
       "https": false
     },
-    "title": "副食批发 · 销售端"
+    "title": "副食批发 · 销售端",
+    "sdkConfigs": {
+      "maps": {
+        "amap": {
+          "key": "8e86bff5f4109572f6fc6b2334a503c5",
+          "securityJsCode": "94a007fdcdf2726aada801141412d5ba",
+          "serviceHost": ""
+        }
+      }
+    }
   },
   "uniStatistics": {
     "enable": false

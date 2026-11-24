@@ -6,16 +6,18 @@
         <view class="form-item">
           <text class="form-label">拜访客户</text>
           <picker :range="customerNames" range-key="name" :value="customerIdx" @change="onCustomerChange">
-            <view class="picker-value">{{ currentCustomer?.shop_name || currentCustomer?.name || '请选择客户' }} ›</view>
+            <view class="picker-value">{{ currentCustomer?.name || '请选择客户' }} ›</view>
           </picker>
         </view>
         <view class="form-item">
           <text class="form-label">当前位置</text>
           <view class="location">
             <text class="location-icon">📍</text>
-            <text class="location-text">{{ location || '获取中...' }}</text>
-            <view class="refresh-btn" @tap="getLocation">
-              <text>刷新</text>
+            <text class="location-text" :class="{ muted: !location }">
+              {{ locating ? '定位中...' : (location || locationError || '未获取到位置，请点击刷新') }}
+            </text>
+            <view class="refresh-btn" :class="{ disabled: locating }" @tap="getLocation(true)">
+              <text>{{ locating ? '定位中' : '刷新' }}</text>
             </view>
           </view>
         </view>
@@ -67,6 +69,8 @@ import type { Customer, VisitRecord } from '@/types'
 const customers = ref<Customer[]>([])
 const customerIdx = ref(0)
 const location = ref('')
+const locationError = ref('')
+const locating = ref(false)
 const latitude = ref<number | undefined>()
 const longitude = ref<number | undefined>()
 const photos = ref<string[]>([])
@@ -74,25 +78,131 @@ const content = ref('')
 const submitting = ref(false)
 const visits = ref<VisitRecord[]>([])
 
-const customerNames = computed(() => customers.value.map((c) => ({ name: c.shop_name || c.name })))
+const customerNames = computed(() => customers.value.map((c) => ({ name: c.name })))
 const currentCustomer = computed(() => customers.value[customerIdx.value])
 
 function onCustomerChange(e: any) {
   customerIdx.value = Number(e.detail.value)
 }
 
-function getLocation() {
+function formatCoords(lat: number, lng: number) {
+  return `经度 ${lng.toFixed(4)}°, 纬度 ${lat.toFixed(4)}°`
+}
+
+function formatAppAddress(addr?: {
+  province?: string
+  city?: string
+  district?: string
+  street?: string
+  streetNum?: string
+  poiName?: string
+}) {
+  if (!addr) return ''
+  return [addr.province, addr.city, addr.district, addr.street, addr.streetNum, addr.poiName]
+    .filter(Boolean)
+    .join('')
+}
+
+// #ifdef H5
+function reverseGeocodeH5(lat: number, lng: number): Promise<string> {
+  return new Promise((resolve) => {
+    const amap = (window as unknown as { AMap?: { plugin?: (name: string, cb: () => void) => void; Geocoder?: new () => { getAddress: (lnglat: [number, number], cb: (status: string, result?: { regeocode?: { formattedAddress?: string } }) => void) => void } } }).AMap
+    if (!amap?.plugin) {
+      resolve('')
+      return
+    }
+    amap.plugin('AMap.Geocoder', () => {
+      try {
+        if (!amap.Geocoder) {
+          resolve('')
+          return
+        }
+        const geocoder = new amap.Geocoder()
+        geocoder.getAddress([lng, lat], (status, result) => {
+          if (status === 'complete' && result?.regeocode?.formattedAddress) {
+            resolve(result.regeocode.formattedAddress)
+          } else {
+            resolve('')
+          }
+        })
+      } catch {
+        resolve('')
+      }
+    })
+  })
+}
+// #endif
+
+async function onLocationSuccess(
+  lat: number,
+  lng: number,
+  manual: boolean,
+  resolvedAddress = '',
+) {
+  latitude.value = lat
+  longitude.value = lng
+  locationError.value = ''
+  let addr = resolvedAddress
+  // #ifdef H5
+  if (!addr) {
+    addr = await reverseGeocodeH5(lat, lng)
+  }
+  // #endif
+  location.value = addr || formatCoords(lat, lng)
+  locating.value = false
+  if (manual) {
+    uni.showToast({ title: '定位已更新', icon: 'none' })
+  }
+}
+
+function onLocationFail(reason: string, manual: boolean) {
+  locationError.value = reason
+  locating.value = false
+  if (manual) {
+    uni.showToast({ title: reason, icon: 'none' })
+  }
+}
+
+function getLocation(manual = false) {
+  if (locating.value) return
+  locating.value = true
+  locationError.value = ''
+
   uni.getLocation({
     type: 'gcj02',
+    geocode: true,
     success: (res) => {
-      latitude.value = res.latitude
-      longitude.value = res.longitude
-      location.value = `经度 ${res.longitude.toFixed(4)}°, 纬度 ${res.latitude.toFixed(4)}°`
+      const appAddr = formatAppAddress(
+        (res as unknown as { address?: Parameters<typeof formatAppAddress>[0] }).address,
+      )
+      void onLocationSuccess(res.latitude, res.longitude, manual, appAddr)
     },
-    fail: () => {
-      location.value = '城东区解放路 88 号 (默认)'
-      latitude.value = 30.5728
-      longitude.value = 104.0668
+    fail: (err) => {
+      const errMsg = String((err as { errMsg?: string })?.errMsg || '')
+      const denied = errMsg.includes('auth deny') || errMsg.includes('authorize') || errMsg.includes('denied')
+      // #ifndef H5
+      if (denied && manual) {
+        onLocationFail('未开启定位权限', false)
+        uni.showModal({
+          title: '需要定位权限',
+          content: '拜访签到需要获取当前位置，是否前往设置开启定位权限？',
+          confirmText: '去设置',
+          success: (r) => {
+            if (r.confirm) {
+              uni.openSetting({
+                success: (s) => {
+                  if (s.authSetting?.['scope.userLocation']) {
+                    getLocation(true)
+                  }
+                },
+              })
+            }
+          },
+        })
+        return
+      }
+      // #endif
+      onLocationFail(denied ? '未开启定位权限，请允许定位后重试' : '定位失败，请点击刷新重试', manual)
     },
   })
 }
@@ -106,10 +216,14 @@ function addPhoto() {
   })
 }
 
-async function load() {
-  customers.value = await customerApi.all()
-  visits.value = await promotionApi.visits()
-  getLocation()
+async function load(refreshLoc = true) {
+  if (refreshLoc) getLocation(false)
+  const [cRes, vRes] = await Promise.allSettled([
+    customerApi.all(),
+    promotionApi.visits(),
+  ])
+  if (cRes.status === 'fulfilled') customers.value = cRes.value
+  if (vRes.status === 'fulfilled') visits.value = vRes.value
 }
 
 async function onSubmit() {
@@ -125,7 +239,7 @@ async function onSubmit() {
   try {
     await promotionApi.checkIn({
       customer_id: currentCustomer.value.id,
-      customer_name: currentCustomer.value.shop_name || currentCustomer.value.name,
+      customer_name: currentCustomer.value.name,
       location: location.value,
       latitude: latitude.value,
       longitude: longitude.value,
@@ -135,13 +249,13 @@ async function onSubmit() {
     uni.showToast({ title: '签到成功', icon: 'success' })
     content.value = ''
     photos.value = []
-    load()
+    load(false)
   } finally {
     submitting.value = false
   }
 }
 
-onMounted(load)
+onMounted(() => load(true))
 </script>
 
 <style lang="scss" scoped>
@@ -200,6 +314,9 @@ onMounted(load)
   font-size: 24rpx;
   color: #1f2937;
   font-variant-numeric: tabular-nums;
+  &.muted {
+    color: #9ca3af;
+  }
 }
 .refresh-btn {
   padding: 8rpx 16rpx;
@@ -207,6 +324,10 @@ onMounted(load)
   color: $uni-color-primary;
   border-radius: 8rpx;
   font-size: 22rpx;
+  flex-shrink: 0;
+  &.disabled {
+    opacity: 0.5;
+  }
 }
 .photos {
   display: flex;

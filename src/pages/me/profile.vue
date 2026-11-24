@@ -26,7 +26,7 @@
       </view>
       <view class="info-row">
         <text class="info-label">负责区域</text>
-        <text class="info-value">{{ auth.user?.region || '—' }}</text>
+        <text class="info-value">{{ auth.user?.role_name || '—' }}</text>
       </view>
       <view class="info-row">
         <text class="info-label">账号</text>

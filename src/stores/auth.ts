@@ -1,4 +1,4 @@
-// src/stores/auth.ts - Auth store backed by uni storage.
+// src/stores/auth.ts - 登录态与当前账号权限。
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi } from '@/api'
@@ -14,18 +14,21 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<UserInfo | null>(null)
 
   const isLoggedIn = computed(() => !!accessToken.value)
+  const isAdmin = computed(() => user.value?.role === 'admin')
+  const permissions = computed(() => user.value?.permissions ?? [])
   const userInitial = computed(() => {
     const name = user.value?.real_name || user.value?.username || 'S'
     return name.charAt(0).toUpperCase()
   })
 
+  function can(code: string): boolean {
+    return permissions.value.includes(code)
+  }
+
   function restore() {
     setTokenGetter(() => accessToken.value)
-    if (accessToken.value) {
-      fetchMe().catch(() => {
-        // Token expired
-        logout()
-      })
+    if (accessToken.value && !user.value) {
+      fetchMe().catch(() => logout())
     }
   }
 
@@ -52,7 +55,7 @@ export const useAuthStore = defineStore('auth', () => {
     try {
       await authApi.logout()
     } catch {
-      /* ignore */
+      /* 后端不可用时也要能退出 */
     }
     accessToken.value = ''
     refreshToken.value = ''
@@ -61,5 +64,18 @@ export const useAuthStore = defineStore('auth', () => {
     uni.removeStorageSync(REFRESH_KEY)
   }
 
-  return { accessToken, refreshToken, user, isLoggedIn, userInitial, login, logout, restore, fetchMe }
+  return {
+    accessToken,
+    refreshToken,
+    user,
+    isLoggedIn,
+    isAdmin,
+    permissions,
+    userInitial,
+    can,
+    login,
+    logout,
+    restore,
+    fetchMe,
+  }
 })

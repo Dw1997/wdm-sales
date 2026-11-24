@@ -12,7 +12,8 @@
       "path": "pages/customers/index",
       "style": {
         "navigationBarTitleText": "我的客户",
-        "enablePullDownRefresh": true
+        "enablePullDownRefresh": true,
+        "navigationStyle": "custom"
       }
     },
     {
@@ -26,6 +27,12 @@
       "path": "pages/performance/index",
       "style": {
         "navigationBarTitleText": "业绩中心"
+      }
+    },
+    {
+      "path": "pages/performance/sales-detail",
+      "style": {
+        "navigationBarTitleText": "销售明细"
       }
     },
     {
@@ -49,9 +56,42 @@
       }
     },
     {
+      "path": "pages/trip/index",
+      "style": {
+        "navigationBarTitleText": "出车",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/trip/call-list",
+      "style": {
+        "navigationBarTitleText": "询单清单"
+      }
+    },
+    {
+      "path": "pages/trip/deliver",
+      "style": {
+        "navigationBarTitleText": "送达"
+      }
+    },
+    {
+      "path": "pages/trip/freight",
+      "style": {
+        "navigationBarTitleText": "物流批次",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/trip/plan",
+      "style": {
+        "navigationBarTitleText": "安排出车"
+      }
+    },
+    {
       "path": "pages/order/create",
       "style": {
-        "navigationBarTitleText": "代客下单"
+        "navigationBarTitleText": "代客下单",
+        "disableScroll": true
       }
     },
     {
@@ -79,15 +119,28 @@
       }
     },
     {
+      "path": "pages/order/return",
+      "style": {
+        "navigationBarTitleText": "发起退货"
+      }
+    },
+    {
       "path": "pages/customers/detail",
       "style": {
         "navigationBarTitleText": "客户详情"
       }
     },
     {
-      "path": "pages/customers/follow-up",
+      "path": "pages/customers/prices",
       "style": {
-        "navigationBarTitleText": "跟进记录"
+        "navigationBarTitleText": "专属价"
+      }
+    },
+    {
+      "path": "pages/customers/price-query",
+      "style": {
+        "navigationBarTitleText": "价格查询",
+        "disableScroll": true
       }
     },
     {
@@ -109,15 +162,39 @@
       }
     },
     {
-      "path": "pages/promotion/approvals",
+      "path": "pages/home/approvals/customer",
       "style": {
-        "navigationBarTitleText": "客户注册审核"
+        "navigationBarTitleText": "客户审核"
+      }
+    },
+    {
+      "path": "pages/home/approvals/order",
+      "style": {
+        "navigationBarTitleText": "订单审批"
+      }
+    },
+    {
+      "path": "pages/home/approvals/credit",
+      "style": {
+        "navigationBarTitleText": "调额审批"
+      }
+    },
+    {
+      "path": "pages/home/approvals/return",
+      "style": {
+        "navigationBarTitleText": "退货确认"
       }
     },
     {
       "path": "pages/me/profile",
       "style": {
         "navigationBarTitleText": "个人信息"
+      }
+    },
+    {
+      "path": "pages/finance/payments",
+      "style": {
+        "navigationBarTitleText": "支付记录"
       }
     }
   ],
@@ -161,22 +238,16 @@
         "selectedIconPath": "static/tab/home-active.png"
       },
       {
+        "pagePath": "pages/trip/index",
+        "text": "出车",
+        "iconPath": "static/tab/trip.png",
+        "selectedIconPath": "static/tab/trip-active.png"
+      },
+      {
         "pagePath": "pages/customers/index",
         "text": "客户",
         "iconPath": "static/tab/customers.png",
         "selectedIconPath": "static/tab/customers-active.png"
-      },
-      {
-        "pagePath": "pages/promotion/index",
-        "text": "推广",
-        "iconPath": "static/tab/promotion.png",
-        "selectedIconPath": "static/tab/promotion-active.png"
-      },
-      {
-        "pagePath": "pages/performance/index",
-        "text": "业绩",
-        "iconPath": "static/tab/performance.png",
-        "selectedIconPath": "static/tab/performance-active.png"
       },
       {
         "pagePath": "pages/me/index",

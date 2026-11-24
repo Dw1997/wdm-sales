@@ -1,7 +1,6 @@
 <template>
   <view class="me-page">
-    <custom-nav-bar :title="'我的'"></custom-nav-bar>
-    <scroll-view scroll-y="true" class="content" :style="{ paddingTop: navTotalHeight + 'px' }">
+    <scroll-view scroll-y="true" class="content">
       <view class="profile-card">
         <view class="avatar">{{ auth.userInitial }}</view>
         <view class="profile-info">
@@ -19,25 +18,20 @@
           <text class="stat-label">推广码</text>
         </view>
         <view class="stat-item">
-          <text class="stat-value">{{ auth.user?.region || '—' }}</text>
-          <text class="stat-label">负责区域</text>
+          <text class="stat-value">{{ auth.user?.role_name || '—' }}</text>
+          <text class="stat-label">账号角色</text>
         </view>
       </view>
 
       <view class="menu-section">
-        <view class="menu-item" @tap="goCustomers">
-          <text class="menu-icon">👥</text>
-          <text class="menu-label">我的客户</text>
-          <text class="menu-arrow">›</text>
-        </view>
-        <view class="menu-item" @tap="goOrders">
-          <text class="menu-icon">📋</text>
-          <text class="menu-label">订单管理</text>
-          <text class="menu-arrow">›</text>
-        </view>
         <view class="menu-item" @tap="goPerformance">
           <text class="menu-icon">📊</text>
           <text class="menu-label">业绩中心</text>
+          <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item" @tap="goPromotion">
+          <text class="menu-icon">📣</text>
+          <text class="menu-label">拓客推广</text>
           <text class="menu-arrow">›</text>
         </view>
         <view class="menu-item" @tap="goMessages">
@@ -48,22 +42,26 @@
         </view>
       </view>
 
+      <view v-if="auth.isAdmin" class="menu-section">
+        <view class="menu-section-title">采购进货</view>
+        <view class="menu-item" @tap="onPurchaseSoon('采购清单')">
+          <text class="menu-icon">📝</text>
+          <text class="menu-label">采购清单</text>
+          <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item" @tap="onPurchaseSoon('采购入库')">
+          <text class="menu-icon">📦</text>
+          <text class="menu-label">采购入库</text>
+          <text class="menu-arrow">›</text>
+        </view>
+        <view class="menu-item" @tap="onPurchaseSoon('供应商付款')">
+          <text class="menu-icon">💳</text>
+          <text class="menu-label">供应商付款</text>
+          <text class="menu-arrow">›</text>
+        </view>
+      </view>
+
       <view class="menu-section">
-        <view class="menu-item" @tap="goPoster">
-          <text class="menu-icon">🖼️</text>
-          <text class="menu-label">推广海报</text>
-          <text class="menu-arrow">›</text>
-        </view>
-        <view class="menu-item" @tap="goVisit">
-          <text class="menu-icon">📍</text>
-          <text class="menu-label">拜访签到</text>
-          <text class="menu-arrow">›</text>
-        </view>
-        <view class="menu-item" @tap="onFeedback">
-          <text class="menu-icon">💬</text>
-          <text class="menu-label">意见反馈</text>
-          <text class="menu-arrow">›</text>
-        </view>
         <view class="menu-item" @tap="onAbout">
           <text class="menu-icon">ℹ️</text>
           <text class="menu-label">关于</text>
@@ -82,18 +80,11 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import CustomNavBar from '@/components/CustomNavBar.vue'
 import { useAuthStore } from '@/stores/auth'
 import { messageApi } from '@/api'
 
 const auth = useAuthStore()
 const unreadCount = ref(0)
-const navTotalHeight = ref(64)
-
-try {
-  const info = uni.getSystemInfoSync()
-  navTotalHeight.value = (info.statusBarHeight || 20) + 44
-} catch (e) { /* default */ }
 
 async function loadUnread() {
   try {
@@ -103,15 +94,12 @@ async function loadUnread() {
 }
 
 function goProfile() { uni.navigateTo({ url: '/pages/me/profile' }) }
-function goCustomers() { uni.switchTab({ url: '/pages/customers/index' }) }
-function goOrders() { uni.navigateTo({ url: '/pages/order/history' }) }
-function goPerformance() { uni.switchTab({ url: '/pages/performance/index' }) }
+function goPerformance() { uni.navigateTo({ url: '/pages/performance/index' }) }
+function goPromotion() { uni.navigateTo({ url: '/pages/promotion/index' }) }
 function goMessages() { uni.navigateTo({ url: '/pages/messages/index' }) }
-function goPoster() { uni.navigateTo({ url: '/pages/promotion/poster' }) }
-function goVisit() { uni.navigateTo({ url: '/pages/promotion/visit' }) }
 
-function onFeedback() {
-  uni.showToast({ title: '反馈功能开发中', icon: 'none' })
+function onPurchaseSoon(name: string) {
+  uni.showToast({ title: `${name}功能即将上线`, icon: 'none' })
 }
 function onAbout() {
   uni.showModal({
@@ -148,7 +136,14 @@ onMounted(() => {
 }
 .content {
   height: 100vh;
+  box-sizing: border-box;
+  padding-top: var(--status-bar-height, 0px);
 }
+/* #ifdef H5 */
+.content {
+  height: calc(100vh - 50px);
+}
+/* #endif */
 .profile-card {
   background: linear-gradient(135deg, #2563eb, #1d4ed8);
   margin: 16rpx;
@@ -223,6 +218,11 @@ onMounted(() => {
   margin: 16rpx;
   border-radius: 16rpx;
   overflow: hidden;
+}
+.menu-section-title {
+  padding: 20rpx 24rpx 4rpx;
+  font-size: 24rpx;
+  color: #9ca3af;
 }
 .menu-item {
   display: flex;

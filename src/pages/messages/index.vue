@@ -34,9 +34,9 @@ import EmptyState from '@/components/EmptyState.vue'
 import { messageApi } from '@/api'
 import { NOTIFICATION_TYPE } from '@/utils/dict'
 import { relativeTime } from '@/utils/format'
-import type { Notification } from '@/types'
+import type { Message } from '@/types'
 
-const list = ref<Notification[]>([])
+const list = ref<Message[]>([])
 
 async function load() {
   list.value = await messageApi.list()
@@ -46,7 +46,7 @@ function typeIcon(t: string) { return NOTIFICATION_TYPE[t]?.icon || '🔔' }
 function typeColor(t: string) { return NOTIFICATION_TYPE[t]?.color || '#64748b' }
 function typeLabel(t: string) { return NOTIFICATION_TYPE[t]?.label || '系统' }
 
-async function onTap(msg: Notification) {
+async function onTap(msg: Message) {
   if (!msg.read) {
     await messageApi.markRead(msg.id)
     msg.read = true

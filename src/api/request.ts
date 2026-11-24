@@ -1,20 +1,29 @@
-// src/api/request.ts - uni.request wrapper with mock fallback and auth header.
-// When VITE_API_BASE_URL is empty, requests are routed to the in-memory mock.
-
-import { authService } from './mock/services'
+// src/api/request.ts - uni.request 封装：统一信封解包、Bearer 头、幂等键、401 处理。
+// 接口契约以 docs/00-core/api/ 为准；BASE_URL 指向后端 /api/v1。
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:9000/api/v1'
-const USE_MOCK = !BASE_URL
 
 export interface RequestOptions {
   url: string
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
-  data?: any
-  params?: Record<string, any>
+  data?: unknown
+  params?: Record<string, unknown>
   showLoading?: boolean
+  /** 写操作默认带 Idempotency-Key（接口规范 §10） */
+  idempotent?: boolean
+  /** 离线队列重放时必须复用入队时生成的幂等键，后端据此去重 */
+  idempotencyKey?: string
+  /** 登录类请求：失败不弹 toast，401 也不跳登录页（由页面自己显示错误） */
+  silent?: boolean
 }
 
-function buildUrl(url: string, params?: Record<string, any>): string {
+interface Envelope<T> {
+  code: number
+  message: string
+  data: T
+}
+
+function buildUrl(url: string, params?: Record<string, unknown>): string {
   if (!params) return url
   const q = Object.entries(params)
     .filter(([, v]) => v !== undefined && v !== null && v !== '')
@@ -24,151 +33,94 @@ function buildUrl(url: string, params?: Record<string, any>): string {
   return url.includes('?') ? `${url}&${q}` : `${url}?${q}`
 }
 
+function uuid(): string {
+  const hex = '0123456789abcdef'
+  let out = ''
+  for (let i = 0; i < 36; i++) {
+    if (i === 8 || i === 13 || i === 18 || i === 23) out += '-'
+    else if (i === 14) out += '4'
+    else if (i === 19) out += hex[(Math.random() * 4 | 8)]
+    else out += hex[Math.random() * 16 | 0]
+  }
+  return out
+}
+
+/** 离线队列入队时先取一个幂等键，重放时原样带回去重。 */
+export function newIdempotencyKey(): string {
+  return uuid()
+}
+
 let tokenGetter: () => string = () => ''
 
 export function setTokenGetter(fn: () => string) {
   tokenGetter = fn
 }
 
-/** Simulate a fetch against in-memory services. */
-async function mockFetch(opts: RequestOptions): Promise<any> {
-  const method = (opts.method || 'GET').toUpperCase()
-  const url = buildUrl(opts.url, opts.params)
-  const [path, queryStr] = url.split('?')
-  const query: Record<string, any> = {}
-  if (queryStr) {
-    queryStr.split('&').forEach((kv) => {
-      const [k, v] = kv.split('=')
-      query[decodeURIComponent(k)] = decodeURIComponent(v)
-    })
+function messageOf(body: unknown, fallback: string): string {
+  if (!body || typeof body !== 'object') return fallback
+  const b = body as Record<string, unknown>
+  if (typeof b.message === 'string' && b.message) return b.message
+  if (typeof b.detail === 'string' && b.detail) return b.detail
+  if (Array.isArray(b.detail) && b.detail.length) {
+    const first = b.detail[0] as Record<string, unknown>
+    if (first && typeof first.msg === 'string') return first.msg
   }
-  // Parse JSON body for POST/PUT
-  let body: any = opts.data
-  if (typeof body === 'string') {
-    try { body = JSON.parse(body) } catch { /* keep as string */ }
-  }
-
-  // Simple routing table mirroring backend endpoints
-  // ----- AUTH -----
-  if (path === '/auth/login' && method === 'POST') return authService.login(body.username, body.password)
-  if (path === '/auth/me' && method === 'GET') return authService.me()
-  if (path === '/auth/logout' && method === 'POST') return authService.logout()
-
-  // ----- SALES / DASHBOARD -----
-  if (path === '/sales/me' && method === 'GET') return authService.me()
-  if (path === '/sales/performance' && method === 'GET') return salesService.performance(query.period_start || dayjs().subtract(30, 'day').format('YYYY-MM-DD'), query.period_end || dayjs().format('YYYY-MM-DD'))
-  if (path === '/sales/ranking' && method === 'GET') return salesService.ranking(query.period_start || dayjs().subtract(30, 'day').format('YYYY-MM-DD'), query.period_end || dayjs().format('YYYY-MM-DD'))
-  if (path === '/sales/dashboard' && method === 'GET') return salesService.dashboard()
-  if (path === '/sales/trend' && method === 'GET') return salesService.trend(Number(query.days) || 14)
-
-  // ----- PRODUCTS -----
-  if (path === '/products' && method === 'GET') return productService.list({ ...query })
-  if (path === '/products/all' && method === 'GET') return productService.all()
-  if (path === '/products/categories' && method === 'GET') return productService.categories()
-  const productMatch = path.match(/^\/products\/(\d+)$/)
-  if (productMatch && method === 'GET') return productService.get(Number(productMatch[1]))
-  const priceMatch = path.match(/^\/products\/(\d+)\/price$/)
-  if (priceMatch && method === 'GET') return productService.getPrice(Number(priceMatch[1]), Number(query.customer_id), query.unit)
-
-  // ----- CUSTOMERS -----
-  if (path === '/customers' && method === 'GET') return customerService.list({ ...query })
-  if (path === '/customers/all' && method === 'GET') return customerService.all()
-  if (path === '/customers/pending' && method === 'GET') return customerService.pendingApprovals()
-  const custMatch = path.match(/^\/customers\/(\d+)$/)
-  if (custMatch && method === 'GET') return customerService.get(Number(custMatch[1]))
-  const approveMatch = path.match(/^\/customers\/(\d+)\/approve$/)
-  if (approveMatch && method === 'POST') return customerService.approve(Number(approveMatch[1]), body.sales_id || 1)
-  const rejectMatch = path.match(/^\/customers\/(\d+)\/reject$/)
-  if (rejectMatch && method === 'POST') return customerService.reject(Number(rejectMatch[1]))
-  const creditMatch = path.match(/^\/customers\/(\d+)\/credit-apply$/)
-  if (creditMatch && method === 'POST') return customerService.applyCredit(Number(creditMatch[1]), body.amount, body.reason)
-  const followUpsMatch = path.match(/^\/customers\/(\d+)\/follow-ups$/)
-  if (followUpsMatch && method === 'GET') return customerService.followUps(Number(followUpsMatch[1]))
-  if (path === '/customers/follow-ups' && method === 'POST') return customerService.addFollowUp(body)
-
-  // ----- ORDERS -----
-  if (path === '/orders' && method === 'GET') return orderService.list({ ...query })
-  if (path === '/orders' && method === 'POST') return orderService.create(body)
-  const orderMatch = path.match(/^\/orders\/([\w-]+)$/)
-  if (orderMatch && method === 'GET') return orderService.get(orderMatch[1])
-  const repurchaseMatch = path.match(/^\/orders\/([\w-]+)\/repurchase$/)
-  if (repurchaseMatch && method === 'POST') return orderService.repurchase(repurchaseMatch[1])
-  const historyMatch = path.match(/^\/customers\/(\d+)\/orders$/)
-  if (historyMatch && method === 'GET') return orderService.historyByCustomer(Number(historyMatch[1]))
-
-  // ----- FINANCE -----
-  const creditInfoMatch = path.match(/^\/finance\/credit\/(\d+)$/)
-  if (creditInfoMatch && method === 'GET') return financeService.getCredit(Number(creditInfoMatch[1]))
-  if (path === '/finance/commissions' && method === 'GET') return financeService.listCommissions({ ...query })
-
-  // ----- PROMOTION -----
-  if (path === '/promotion/stats' && method === 'GET') return promotionService.stats()
-  if (path === '/promotion/visits' && method === 'GET') return promotionService.listVisits()
-  if (path === '/promotion/check-in' && method === 'POST') return promotionService.checkIn(body)
-
-  // ----- MESSAGES -----
-  if (path === '/messages' && method === 'GET') return messageService.list()
-  if (path === '/messages/unread-count' && method === 'GET') return { count: await messageService.unreadCount() }
-  const msgReadMatch = path.match(/^\/messages\/(\d+)\/read$/)
-  if (msgReadMatch && method === 'POST') return messageService.markRead(Number(msgReadMatch[1]))
-  if (path === '/messages/read-all' && method === 'POST') return messageService.markAllRead()
-
-  throw { response: { status: 404, data: { detail: `Mock route not found: ${method} ${path}` } } }
+  return fallback
 }
 
-// Lazy imports for mock services (avoid circular deps)
-import { salesService } from './mock/services'
-import { productService } from './mock/services'
-import { customerService } from './mock/services'
-import { orderService } from './mock/services'
-import { financeService } from './mock/services'
-import { promotionService } from './mock/services'
-import { messageService } from './mock/services'
-import dayjs from 'dayjs'
+function handleUnauthorized() {
+  uni.removeStorageSync('wdm_sales_access')
+  uni.removeStorageSync('wdm_sales_refresh')
+  uni.reLaunch({ url: '/pages/auth/login' })
+}
 
-export async function request<T = any>(opts: RequestOptions): Promise<T> {
-  if (opts.showLoading !== false) {
-    uni.showLoading({ title: '加载中', mask: false })
-  }
+export async function request<T = unknown>(opts: RequestOptions): Promise<T> {
+  const method = opts.method || 'GET'
+  const showLoading = opts.showLoading !== false
+  if (showLoading) uni.showLoading({ title: '加载中', mask: false })
+
   try {
-    if (USE_MOCK) {
-      const data = await mockFetch(opts)
-      return data as T
-    }
     return await new Promise<T>((resolve, reject) => {
+      const header: Record<string, string> = { 'Content-Type': 'application/json' }
       const token = tokenGetter()
-      const header: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
       if (token) header.Authorization = `Bearer ${token}`
+      const idempotent = opts.idempotent ?? method !== 'GET'
+      if (opts.idempotencyKey) header['Idempotency-Key'] = opts.idempotencyKey
+      else if (idempotent) header['Idempotency-Key'] = uuid()
+
       uni.request({
         url: BASE_URL + buildUrl(opts.url, opts.params),
-        method: opts.method || 'GET',
-        data: opts.data,
+        method,
+        data: opts.data as Record<string, unknown> | undefined,
         header,
         success: (res) => {
           const status = res.statusCode || 200
+          const body = res.data as Envelope<T> | Record<string, unknown> | undefined
           if (status >= 200 && status < 300) {
-            resolve((res.data as { data: T }).data)
-          } else if (status === 401) {
-            if (token) {
-              uni.removeStorageSync('wdm_sales_access')
-              uni.reLaunch({ url: '/pages/auth/login' })
+            if (body && typeof body === 'object' && 'data' in body) {
+              resolve((body as Envelope<T>).data)
+            } else {
+              resolve(undefined as T)
             }
-            reject(new Error((res.data as any)?.message || '登录状态已失效'))
-          } else {
-            const detail = (res.data as any)?.detail || (res.data as any)?.message || '请求失败'
-            uni.showToast({ title: String(detail), icon: 'none' })
-            reject(new Error(String(detail)))
+            return
           }
+          const message = messageOf(body, '请求失败')
+          if (opts.silent) {
+            /* 登录页自己显示错误条，不弹 toast、不重定向 */
+          } else if (status === 401) {
+            handleUnauthorized()
+          } else {
+            uni.showToast({ title: message, icon: 'none' })
+          }
+          reject(Object.assign(new Error(message), { status, body }))
         },
-        fail: (err) => {
-          uni.showToast({ title: '网络异常', icon: 'none' })
-          reject(err)
+        fail: () => {
+          if (!opts.silent) uni.showToast({ title: '网络异常', icon: 'none' })
+          reject(new Error('网络异常'))
         },
       })
     })
   } finally {
-    if (opts.showLoading !== false) uni.hideLoading()
+    if (showLoading) uni.hideLoading()
   }
 }

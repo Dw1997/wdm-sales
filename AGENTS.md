@@ -22,32 +22,30 @@ No test runner or linter is configured; `type-check` is the only static verifica
 
 ## Architecture
 
-### Three-Layer API with In-Memory Mock Backend
+### API Layer
 
-The API layer has three coordinated files. Understanding this split is essential before modifying any endpoint:
+Two files, both pointing at the real backend (`http://localhost:9000/api/v1` by default, override with `VITE_API_BASE_URL`):
 
-1. **`src/api/index.ts`** — Typed public facade. Exposes domain-grouped API objects (`authApi`, `salesApi`, `productApi`, `customerApi`, `orderApi`, `financeApi`, `promotionApi`, `messageApi`). Pages and stores only import from here.
-2. **`src/api/request.ts`** — `uni.request` wrapper with dual-mode: when `BASE_URL` is empty (default), requests route to the in-memory mock via `mockFetch()`; when set, real HTTP requests fire with Bearer auth. Also handles `uni.showLoading`, 401 → logout+reLaunch, and toast errors.
-3. **`src/api/mock/services.ts`** — In-memory CRUD services (the "server"). **`src/api/mock/db.ts`** holds seed data (salesList, products, customers, orders, etc.) mutated at runtime.
+1. **`src/api/index.ts`** — typed public facade grouped by domain (`authApi`, `spuApi`, `skuApi`, `priceApi`, `customerApi`, `customerLevelApi`, `creditApi`, `orderApi`, `financeApi`, `dashboardApi`, `messageApi`, plus legacy `promotionApi` / `salesApi`). Pages and stores only import from here.
+2. **`src/api/request.ts`** — `uni.request` wrapper: unwraps the `{code, message, data}` envelope, adds `Authorization: Bearer <token>`, adds `Idempotency-Key` to write requests, shows loading/toast, and on 401 clears tokens and `reLaunch`es to the login page.
 
-`mockFetch()` in `request.ts` is a flat if-chain routing table mirroring backend endpoints. To add an endpoint you must touch all three files in lockstep:
-- Add a typed method to the relevant API object in `api/index.ts`
-- Add a matching route branch (path + method) in `request.ts`'s `mockFetch()`
-- Add the service implementation in `mock/services.ts` (and seed data in `db.ts` if needed)
+Contract source of truth is `docs/00-core/api/*.md` (repo root), not this file. Response shapes live in `src/types/index.ts`; amounts are two-decimal strings from the backend and are formatted with `utils/format.ts`.
+
+Some backend endpoints are still stubs (`/sales/me*`, `/finance/credit`, `/promotion/*`, customer follow-ups); pages that use them are marked in `02-移动端设计.md` §6.1 and must degrade gracefully rather than invent data.
 
 ### Price Isolation Rule
 
-Prices are resolved **only** in the mock "server" via `productService.getPrice(productId, customerId, unit)`. It applies customer-tier discounts (bronze/silver/gold/vip) and unit-ratio box discounts. The frontend (cart store, order pages) always calls `productApi.price()` which round-trips through the request wrapper to the mock service. **Never compute prices in the frontend.** When the cart's customer changes, `cart.refreshPrices()` re-resolves every line item.
+Prices are resolved **only** by the backend quote API (`POST /prices/quote`) and snapshotted onto orders. The cart store and order pages call `priceApi.quote()` and never compute, cache, or scale prices. When the cart's customer changes, `cart.refreshPrices()` re-quotes every line.
 
 ### Auth Flow
 
-`src/stores/auth.ts` backs tokens to `uni.storage` (`wdm_sales_access` / `wdm_sales_refresh`). On app launch, `App.vue` → `onLaunch` calls `auth.restore()`, which calls `setTokenGetter()` to inject the token into `request.ts`'s real-HTTP path. The request wrapper's 401 handler clears storage and `reLaunch`es to `/pages/auth/login`. Mock mode bypasses auth entirely (no token check in `mockFetch`).
+`src/stores/auth.ts` backs tokens to `uni.storage` (`wdm_sales_access` / `wdm_sales_refresh`). On app launch, `App.vue` → `onLaunch` calls `auth.restore()`, which injects the token getter into `request.ts` and refreshes `user`. Login uses `platform=app` with phone + password. `GET /auth/me` returns `role`, `role_name` and the `permissions` list; gate UI with `auth.can('order.price_override')` etc.
 
 ### State (Pinia)
 
 Two stores, both Composition-API style:
-- **`auth`** — token + current user; `restore()` on launch; `fetchMe()` has a hardcoded fallback user if the mock fails.
-- **`cart`** — 代客下单 cart scoped to a customer. `setCustomer()` triggers `refreshPrices()` for all items. Cart state is in-memory (not persisted) and cleared on order submit.
+- **`auth`** — tokens, current user, role/permissions; `restore()` on launch.
+- **`cart`** — 代客下单 cart scoped to a customer, holding SKUs and backend-quoted prices. `setCustomer()` re-quotes; `addFromQuote()` requires a quote. In-memory only, cleared after order submit.
 
 ### Page Structure & Navigation
 

@@ -2,28 +2,24 @@
   <view class="customer-card" @tap="$emit('tap')">
     <view class="card-top">
       <view class="shop-info">
-        <text class="shop-name">{{ customer.shop_name || customer.name }}</text>
+        <text class="shop-name">{{ customer.name }}</text>
         <view class="badges">
-          <text class="tag" :style="{ background: levelBg, color: levelColor }">{{ levelLabel }}</text>
+          <text v-if="customer.level_nickname" class="tag tag-level">{{ customer.level_nickname }}</text>
           <text class="tag" :class="`tag-${statusType}`">{{ statusLabel }}</text>
         </view>
       </view>
-      <view class="phone-wrap" @tap.stop="callPhone">
+      <view v-if="customer.phone" class="phone-wrap" @tap.stop="callPhone">
         <text class="phone">{{ formatPhone(customer.phone) }}</text>
       </view>
     </view>
     <view class="card-meta">
-      <text class="meta-item">本月 ¥{{ formatQty(customer.month_gmv || 0) }}</text>
+      <text class="meta-item">{{ customer.town || customer.address || '未设置地点' }}</text>
       <text class="meta-divider">|</text>
-      <text class="meta-item">累计 {{ customer.total_orders || 0 }} 单</text>
-      <text class="meta-divider">|</text>
-      <text class="meta-item" :class="customer.available_credit < customer.credit_limit * 0.2 ? 'text-danger' : ''">
-        额度 ¥{{ formatQty(customer.available_credit) }}
-      </text>
+      <text class="meta-item">{{ deliveryLabel }}</text>
     </view>
-    <view v-if="customer.last_order_at || customer.last_follow_up_at" class="card-foot">
-      <text class="foot-text">最近下单 {{ relativeTime(customer.last_order_at) }}</text>
-      <text v-if="customer.last_follow_up_at" class="foot-text">· 跟进 {{ relativeTime(customer.last_follow_up_at) }}</text>
+    <view v-if="customer.sales_name || customer.contact_name" class="card-foot">
+      <text v-if="customer.sales_name" class="foot-text">归属 {{ customer.sales_name }}</text>
+      <text v-if="customer.contact_name" class="foot-text">· 联系人 {{ customer.contact_name }}</text>
     </view>
   </view>
 </template>
@@ -31,20 +27,20 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Customer } from '@/types'
-import { CUSTOMER_LEVEL, CUSTOMER_STATUS } from '@/utils/dict'
-import { formatQty, formatPhone, relativeTime } from '@/utils/format'
+import { CUSTOMER_STATUS, DELIVERY_MODE } from '@/utils/dict'
+import { formatPhone } from '@/utils/format'
 
 const props = defineProps<{ customer: Customer }>()
 defineEmits<{ tap: []; call: [] }>()
 
-const levelLabel = computed(() => CUSTOMER_LEVEL[props.customer.level]?.label || props.customer.level)
-const levelColor = computed(() => CUSTOMER_LEVEL[props.customer.level]?.color || '#9ca3af')
-const levelBg = computed(() => `${CUSTOMER_LEVEL[props.customer.level]?.color || '#9ca3af'}1a`)
 const statusLabel = computed(() => CUSTOMER_STATUS[props.customer.status]?.label || props.customer.status)
 const statusType = computed(() => CUSTOMER_STATUS[props.customer.status]?.type || 'grey')
+const deliveryLabel = computed(
+  () => DELIVERY_MODE[props.customer.default_delivery_mode] || props.customer.default_delivery_mode,
+)
 
 function callPhone() {
-  uni.makePhoneCall({ phoneNumber: props.customer.phone })
+  if (props.customer.phone) uni.makePhoneCall({ phoneNumber: props.customer.phone })
 }
 </script>
 
@@ -84,6 +80,7 @@ function callPhone() {
   font-size: 20rpx;
   line-height: 1.6;
 }
+.tag-level { background: rgba(37, 99, 235, 0.08); color: #2563eb; }
 .tag-success { background: rgba(22, 163, 74, 0.1); color: #16a34a; }
 .tag-warning { background: rgba(234, 88, 12, 0.1); color: #ea580c; }
 .tag-danger { background: rgba(220, 38, 38, 0.1); color: #dc2626; }

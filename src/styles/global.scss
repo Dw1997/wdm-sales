@@ -148,3 +148,16 @@ view, text, image, button, input, textarea, scroll-view, swiper {
   width: 100%;
   background: $uni-color-primary;
 }
+
+/* #ifdef H5 */
+/* 避免 uni 原生弹层（默认 z-index: 999）被页面底部抽屉（z-index >= 1000）遮挡 */
+uni-toast,
+.uni-sample-toast,
+.uni-toast,
+uni-modal,
+.uni-modal,
+uni-actionsheet,
+.uni-actionsheet {
+  z-index: 9999 !important;
+}
+/* #endif */

@@ -3,30 +3,30 @@
     <scroll-view scroll-y="true" class="content">
       <!-- Invite card -->
       <view class="invite-card">
-        <view class="invite-header">
-          <text class="invite-title">我的推广码</text>
-          <text class="invite-sub">客户扫码或访问链接自动绑定归属</text>
+        <view class="invite-top">
+          <view class="invite-header">
+            <text class="invite-title">我的专属推广码</text>
+            <text class="invite-sub">客户通过推广链接或小程序码进入，自动绑定归属</text>
+          </view>
+          <view v-if="qrcodeUrl" class="invite-qr-thumb" @tap="previewQr">
+            <image :src="qrcodeUrl" mode="aspectFit" class="qr-thumb-img" />
+            <text class="qr-thumb-tip">放大</text>
+          </view>
         </view>
         <view class="invite-code">
           <text class="code-text">{{ stats?.invite_code || '—' }}</text>
-          <view class="copy-btn" @tap="copyCode">
-            <text>复制</text>
-          </view>
-        </view>
-        <view class="invite-link">
-          <text class="link-text" selectable>{{ stats?.invite_url || '—' }}</text>
-          <view class="copy-btn" @tap="copyLink">
-            <text>复制</text>
+          <view class="copy-btn" @tap="copyPromoLink">
+            <text>{{ copyingLink ? '生成中...' : '复制链接' }}</text>
           </view>
         </view>
         <view class="invite-actions">
           <view class="invite-action" @tap="goPoster">
             <text class="action-emoji">🖼️</text>
-            <text class="action-label">推广海报</text>
+            <text class="action-label">小程序码海报</text>
           </view>
-          <view class="invite-action" @tap="share">
-            <text class="action-emoji">📤</text>
-            <text class="action-label">分享</text>
+          <view class="invite-action" @tap="copyPromoLink">
+            <text class="action-emoji">📋</text>
+            <text class="action-label">{{ copyingLink ? '生成中...' : '复制推广链接' }}</text>
           </view>
         </view>
       </view>
@@ -106,41 +106,56 @@ import type { PromotionStats, VisitRecord } from '@/types'
 
 const stats = ref<PromotionStats | null>(null)
 const visits = ref<VisitRecord[]>([])
+const qrcodeUrl = ref('')
+const copyingLink = ref(false)
 
 async function load() {
   try {
-    [stats.value, visits.value] = await Promise.all([promotionApi.stats(), promotionApi.visits()])
+    const [s, v] = await Promise.all([promotionApi.stats(), promotionApi.visits()])
+    stats.value = s
+    visits.value = v
+    if (s.qrcode_url) {
+      qrcodeUrl.value = s.qrcode_url
+    } else if (s.invite_code && !qrcodeUrl.value) {
+      promotionApi.qrcode().then((res) => {
+        if (res?.qrcode_url) qrcodeUrl.value = res.qrcode_url
+      }).catch(() => { /* 未配置微信/COS 时静默 */ })
+    }
   } catch (e) {
     /* ignore */
   }
 }
 
-function copyCode() {
-  uni.setClipboardData({ data: stats.value?.invite_code || '' })
+function previewQr() {
+  if (!qrcodeUrl.value) return
+  uni.previewImage({ urls: [qrcodeUrl.value] })
 }
-function copyLink() {
-  uni.setClipboardData({ data: stats.value?.invite_url || '' })
-}
-function share() {
-  // #ifdef H5
-  if (navigator.share) {
-    navigator.share({
-      title: '副食批发平台 - 注册有礼',
-      text: '通过我的推广链接注册，享受批发价',
-      url: stats.value?.invite_url,
-    })
-  } else {
-    copyLink()
+
+async function copyPromoLink() {
+  // 无推广码或正在生成时直接忽略，避免重复请求
+  if (!stats.value?.invite_code || copyingLink.value) return
+  copyingLink.value = true
+  try {
+    const res = await promotionApi.urlLink()
+    if (res?.url_link) {
+      // H5 与小程序默认复制后自带提示，这里关闭后统一在 success 中提示
+      uni.setClipboardData({
+        data: res.url_link,
+        showToast: false,
+        success: () => uni.showToast({ title: '已复制小程序推广链接', icon: 'success' }),
+      })
+    } else {
+      uni.showToast({ title: res?.unavailable_reason || '暂无法生成推广链接', icon: 'none' })
+    }
+  } catch (e) {
+    /* 请求层已统一提示错误，此处静默 */
+  } finally {
+    copyingLink.value = false
   }
-  // #endif
-  // #ifndef H5
-  uni.showToast({ title: '请复制链接分享', icon: 'none' })
-  copyLink()
-  // #endif
 }
 function goPoster() { uni.navigateTo({ url: '/pages/promotion/poster' }) }
 function goVisit() { uni.navigateTo({ url: '/pages/promotion/visit' }) }
-function goApprovals() { uni.navigateTo({ url: '/pages/promotion/approvals' }) }
+function goApprovals() { uni.navigateTo({ url: '/pages/home/approvals/customer' }) }
 function goCustomers() { uni.switchTab({ url: '/pages/customers/index' }) }
 
 onShow(load)
@@ -157,7 +172,8 @@ onMounted(load)
   background: #f5f5f7;
 }
 .content {
-  height: 100vh;
+  height: calc(100vh - var(--window-top, 0px));
+  box-sizing: border-box;
 }
 .invite-card {
   background: linear-gradient(135deg, #2563eb, #1d4ed8);
@@ -167,8 +183,34 @@ onMounted(load)
   color: #fff;
   box-shadow: 0 8rpx 24rpx rgba(37, 99, 235, 0.3);
 }
+.invite-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  margin-bottom: 20rpx;
+}
 .invite-header {
-  margin-bottom: 24rpx;
+  flex: 1;
+}
+.invite-qr-thumb {
+  width: 112rpx;
+  padding: 8rpx;
+  background: #fff;
+  border-radius: 12rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+.qr-thumb-img {
+  width: 96rpx;
+  height: 96rpx;
+}
+.qr-thumb-tip {
+  font-size: 18rpx;
+  color: #2563eb;
+  margin-top: 2rpx;
 }
 .invite-title {
   font-size: 36rpx;

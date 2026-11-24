@@ -3,82 +3,109 @@
     <view class="poster">
       <view class="poster-bg">
         <view class="poster-header">
-          <text class="poster-title">副食批发平台</text>
-          <text class="poster-sub">注册有礼 · 享受批发价</text>
+          <text class="poster-title">味都美副食批发</text>
+          <text class="poster-sub">微信扫一扫 · 绑定专属客户看批发价</text>
         </view>
         <view class="sales-info">
           <view class="sales-avatar">{{ auth.userInitial }}</view>
           <view class="sales-meta">
-            <text class="sales-name">{{ auth.user?.real_name || '销售员' }}</text>
-            <text class="sales-region">{{ auth.user?.region || '区域销售' }}</text>
+            <text class="sales-name">{{ auth.user?.real_name || auth.user?.username || '业务员' }}</text>
+            <text class="sales-region">{{ auth.user?.role_name || (auth.isAdmin ? '店主管理员' : '专属销售') }}</text>
             <text class="sales-phone">{{ auth.user?.phone || '' }}</text>
           </view>
         </view>
         <view class="qr-section">
-          <view class="qr-placeholder">
-            <view class="qr-grid">
-              <view v-for="i in 64" :key="i" class="qr-cell" :class="{ on: qrPattern[i - 1] }"></view>
+          <view class="qr-box" @tap="previewQr">
+            <image
+              v-if="qrInfo?.qrcode_url"
+              :src="qrInfo.qrcode_url"
+              mode="aspectFit"
+              class="qr-img"
+              show-menu-by-longpress
+            />
+            <view v-else class="qr-empty">
+              <text class="qr-empty-text">
+                {{ loading ? '正在生成小程序码...' : (qrInfo?.unavailable_reason || '暂未生成小程序码') }}
+              </text>
             </view>
           </view>
-          <text class="qr-tip">扫码注册</text>
-          <text class="qr-code">推广码：{{ auth.user?.invite_code || '—' }}</text>
+          <text class="qr-tip">微信扫描上方小程序码，手机号一键登录</text>
+          <text class="qr-code">专属推广码：{{ qrInfo?.invite_code || auth.user?.invite_code || '—' }}</text>
         </view>
         <view class="poster-foot">
-          <text class="foot-text">· 5 万 + 商品批发价</text>
-          <text class="foot-text">· 专属销售一对一服务</text>
-          <text class="foot-text">· 账期支持，先货后款</text>
+          <text class="foot-text">· 干货副食源头批发，老客户自助复单</text>
+          <text class="foot-text">· 专属业务员一对一服务与路线配送</text>
+          <text class="foot-text">· 可直接保存打印张贴，长期有效</text>
         </view>
       </view>
     </view>
     <view class="actions">
-      <button class="btn-outline" @tap="onSave">保存到相册</button>
-      <button class="btn-primary" @tap="onShare">分享给客户</button>
+      <button class="btn-outline" :disabled="loading" @tap="loadQrcode(true)">刷新码图</button>
+      <button class="btn-primary" :disabled="!qrInfo?.qrcode_url" @tap="onSave">保存小程序码</button>
     </view>
   </view>
 </template>
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { promotionApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
+import type { PromotionQrcode } from '@/types'
 
 const auth = useAuthStore()
-const qrPattern = ref<boolean[]>([])
+const qrInfo = ref<PromotionQrcode | null>(null)
+const loading = ref(false)
 
-function genPattern() {
-  const arr: boolean[] = []
-  for (let i = 0; i < 64; i++) {
-    arr.push(Math.random() > 0.5)
-  }
-  // Make it look QR-like: corners are squares
-  for (let r = 0; r < 7; r++) {
-    for (let c = 0; c < 7; c++) {
-      const idx = r * 8 + c
-      const edge = r === 0 || r === 6 || c === 0 || c === 6
-      const middle = r >= 2 && r <= 4 && c >= 2 && c <= 4
-      arr[idx] = edge || middle
-      arr[r * 8 + c + 56] = arr[idx] // bottom-left
-      arr[(r + 1) * 8 - 1 - 0] = arr[idx]
+async function loadQrcode(refresh = false) {
+  loading.value = true
+  try {
+    qrInfo.value = await promotionApi.qrcode(refresh)
+    if (refresh && qrInfo.value?.qrcode_url) {
+      uni.showToast({ title: '已重新生成', icon: 'success' })
     }
+  } catch {
+    /* request 已提示 */
+  } finally {
+    loading.value = false
   }
-  qrPattern.value = arr
+}
+
+function previewQr() {
+  if (!qrInfo.value?.qrcode_url) return
+  uni.previewImage({ urls: [qrInfo.value.qrcode_url] })
 }
 
 function onSave() {
+  const url = qrInfo.value?.qrcode_url
+  if (!url) return
   // #ifdef H5
-  uni.showToast({ title: '请长按图片保存', icon: 'none' })
+  const a = document.createElement('a')
+  a.href = url
+  a.target = '_blank'
+  a.download = `wdm-promo-${qrInfo.value?.invite_code || 'qrcode'}.png`
+  a.click()
+  uni.showToast({ title: '已触发下载，也可长按图片保存', icon: 'none' })
   // #endif
   // #ifndef H5
-  uni.showToast({ title: '已保存 (演示)', icon: 'success' })
+  uni.downloadFile({
+    url,
+    success: (res) => {
+      if (res.statusCode !== 200) {
+        uni.showToast({ title: '下载图片失败', icon: 'none' })
+        return
+      }
+      uni.saveImageToPhotosAlbum({
+        filePath: res.tempFilePath,
+        success: () => uni.showToast({ title: '已保存到相册', icon: 'success' }),
+        fail: () => uni.showToast({ title: '请允许相册权限后重试', icon: 'none' }),
+      })
+    },
+    fail: () => uni.showToast({ title: '下载图片失败', icon: 'none' }),
+  })
   // #endif
 }
-function onShare() {
-  uni.setClipboardData({
-    data: `https://m.example.com/register?invite=${auth.user?.invite_code || ''}`,
-    success: () => uni.showToast({ title: '链接已复制', icon: 'success' }),
-  })
-}
 
-onMounted(genPattern)
+onMounted(() => loadQrcode(false))
 </script>
 
 <style lang="scss" scoped>
@@ -161,27 +188,30 @@ onMounted(genPattern)
 .qr-section {
   margin-bottom: 32rpx;
 }
-.qr-placeholder {
-  width: 320rpx;
-  height: 320rpx;
+.qr-box {
+  width: 360rpx;
+  height: 360rpx;
   margin: 0 auto 16rpx;
   padding: 16rpx;
   background: #fff;
-  border: 4rpx solid #1f2937;
-  border-radius: 12rpx;
+  border: 2rpx solid #e5e7eb;
+  border-radius: 16rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.qr-grid {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 2rpx;
+.qr-img {
   width: 100%;
   height: 100%;
 }
-.qr-cell {
-  background: #fff;
-  &.on {
-    background: #1f2937;
-  }
+.qr-empty {
+  padding: 24rpx;
+  text-align: center;
+}
+.qr-empty-text {
+  font-size: 24rpx;
+  color: #6b7280;
+  line-height: 1.5;
 }
 .qr-tip {
   display: block;
