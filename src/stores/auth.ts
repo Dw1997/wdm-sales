@@ -2,7 +2,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { authApi } from '@/api'
-import { setTokenGetter } from '@/api/request'
+import { setTokenGetter, setAuthCallbacks } from '@/api/request'
 import type { UserInfo } from '@/types'
 
 const ACCESS_KEY = 'wdm_sales_access'
@@ -25,8 +25,34 @@ export const useAuthStore = defineStore('auth', () => {
     return permissions.value.includes('*') || permissions.value.includes(code)
   }
 
-  function restore() {
+  function setTokens(access: string, refresh?: string) {
+    accessToken.value = access
+    uni.setStorageSync(ACCESS_KEY, access)
+    if (refresh) {
+      refreshToken.value = refresh
+      uni.setStorageSync(REFRESH_KEY, refresh)
+    }
+  }
+
+  function clearSession() {
+    accessToken.value = ''
+    refreshToken.value = ''
+    user.value = null
+    uni.removeStorageSync(ACCESS_KEY)
+    uni.removeStorageSync(REFRESH_KEY)
+  }
+
+  function bindRequestAuth() {
     setTokenGetter(() => accessToken.value)
+    setAuthCallbacks({
+      getRefreshToken: () => refreshToken.value,
+      onTokensRefreshed: setTokens,
+      onUnauthorized: clearSession,
+    })
+  }
+
+  function restore() {
+    bindRequestAuth()
     if (accessToken.value && !user.value) {
       fetchMe().catch(() => logout())
     }
@@ -38,7 +64,7 @@ export const useAuthStore = defineStore('auth', () => {
     refreshToken.value = tokens.refresh_token
     uni.setStorageSync(ACCESS_KEY, tokens.access_token)
     uni.setStorageSync(REFRESH_KEY, tokens.refresh_token)
-    setTokenGetter(() => accessToken.value)
+    bindRequestAuth()
     try {
       await fetchMe()
     } catch (error) {
@@ -57,11 +83,7 @@ export const useAuthStore = defineStore('auth', () => {
     } catch {
       /* 后端不可用时也要能退出 */
     }
-    accessToken.value = ''
-    refreshToken.value = ''
-    user.value = null
-    uni.removeStorageSync(ACCESS_KEY)
-    uni.removeStorageSync(REFRESH_KEY)
+    clearSession()
   }
 
   return {
@@ -77,5 +99,7 @@ export const useAuthStore = defineStore('auth', () => {
     logout,
     restore,
     fetchMe,
+    setTokens,
+    clearSession,
   }
 })

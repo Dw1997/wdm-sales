@@ -1,7 +1,10 @@
-// src/api/request.ts - uni.request 封装：统一信封解包、Bearer 头、幂等键、401 处理。
+// src/api/request.ts - uni.request 封装：统一信封解包、Bearer 头、幂等键、401 单飞续期。
 // 接口契约以 docs/00-core/api/ 为准；BASE_URL 指向后端 /api/v1。
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:9000/api/v1'
+
+const ACCESS_KEY = 'wdm_sales_access'
+const REFRESH_KEY = 'wdm_sales_refresh'
 
 export interface RequestOptions {
   url: string
@@ -15,12 +18,20 @@ export interface RequestOptions {
   idempotencyKey?: string
   /** 登录类请求：失败不弹 toast，401 也不跳登录页（由页面自己显示错误） */
   silent?: boolean
+  /** 内部标记：401 刷新后已重放过，避免无限循环 */
+  _retried?: boolean
 }
 
 interface Envelope<T> {
   code: number
   message: string
   data: T
+}
+
+interface AuthCallbacks {
+  getRefreshToken?: () => string
+  onTokensRefreshed?: (access: string, refresh?: string) => void
+  onUnauthorized?: () => void
 }
 
 function buildUrl(url: string, params?: Record<string, unknown>): string {
@@ -51,9 +62,14 @@ export function newIdempotencyKey(): string {
 }
 
 let tokenGetter: () => string = () => ''
+let authCallbacks: AuthCallbacks = {}
 
 export function setTokenGetter(fn: () => string) {
   tokenGetter = fn
+}
+
+export function setAuthCallbacks(cbs: AuthCallbacks) {
+  authCallbacks = { ...authCallbacks, ...cbs }
 }
 
 function messageOf(body: unknown, fallback: string): string {
@@ -68,61 +84,210 @@ function messageOf(body: unknown, fallback: string): string {
   return fallback
 }
 
+let redirectingToLogin = false
+
 function handleUnauthorized() {
-  uni.removeStorageSync('wdm_sales_access')
-  uni.removeStorageSync('wdm_sales_refresh')
-  uni.reLaunch({ url: '/pages/auth/login' })
+  if (redirectingToLogin) return
+  redirectingToLogin = true
+  uni.removeStorageSync(ACCESS_KEY)
+  uni.removeStorageSync(REFRESH_KEY)
+  authCallbacks.onUnauthorized?.()
+  uni.reLaunch({
+    url: '/pages/auth/login',
+    complete: () => {
+      setTimeout(() => {
+        redirectingToLogin = false
+      }, 1000)
+    },
+  })
+}
+
+async function doRefresh(): Promise<boolean> {
+  const refreshToken =
+    authCallbacks.getRefreshToken?.() || (uni.getStorageSync(REFRESH_KEY) as string) || ''
+  if (!refreshToken) return false
+
+  const result = await new Promise<{ access: string; refresh: string } | null>((resolve) => {
+    uni.request({
+      url: `${BASE_URL}/auth/refresh`,
+      method: 'POST',
+      data: { refresh_token: refreshToken },
+      header: { 'Content-Type': 'application/json' },
+      success: (res) => {
+        const status = res.statusCode || 200
+        if (status < 200 || status >= 300) {
+          resolve(null)
+          return
+        }
+        const body = res.data as Envelope<Record<string, unknown>> | Record<string, unknown> | undefined
+        const payload =
+          body && typeof body === 'object' && 'data' in body
+            ? (body as Envelope<Record<string, unknown>>).data
+            : (body as Record<string, unknown> | undefined)
+        const access = payload && typeof payload.access_token === 'string' ? payload.access_token : ''
+        const refresh = payload && typeof payload.refresh_token === 'string' ? payload.refresh_token : ''
+        resolve(access ? { access, refresh } : null)
+      },
+      fail: () => resolve(null),
+    })
+  })
+
+  if (!result) return false
+  uni.setStorageSync(ACCESS_KEY, result.access)
+  if (result.refresh) uni.setStorageSync(REFRESH_KEY, result.refresh)
+  authCallbacks.onTokensRefreshed?.(result.access, result.refresh || undefined)
+  return true
+}
+
+let refreshPromise: Promise<boolean> | null = null
+
+/** 并发 401 只发一次 /auth/refresh，其余请求共享同一个 Promise。 */
+export function tryRefreshToken(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = doRefresh()
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null
+      })
+  }
+  return refreshPromise
+}
+
+interface Outcome<T> {
+  ok: boolean
+  status: number
+  data?: T
+  message?: string
+  body?: unknown
+}
+
+function sendRequest<T>(
+  opts: RequestOptions,
+  method: NonNullable<RequestOptions['method']>,
+  idempotencyKey?: string,
+): Promise<Outcome<T>> {
+  return new Promise((resolve) => {
+    const header: Record<string, string> = { 'Content-Type': 'application/json' }
+    const token = tokenGetter()
+    if (token) header.Authorization = `Bearer ${token}`
+    if (idempotencyKey) header['Idempotency-Key'] = idempotencyKey
+
+    uni.request({
+      url: BASE_URL + buildUrl(opts.url, opts.params),
+      method,
+      data: opts.data as Record<string, unknown> | undefined,
+      header,
+      success: (res) => {
+        const status = res.statusCode || 200
+        const body = res.data as Envelope<T> | Record<string, unknown> | undefined
+        if (status >= 200 && status < 300) {
+          const data =
+            body && typeof body === 'object' && 'data' in body
+              ? (body as Envelope<T>).data
+              : (undefined as T)
+          resolve({ ok: true, status, data })
+          return
+        }
+        resolve({ ok: false, status, message: messageOf(body, '请求失败'), body })
+      },
+      fail: () => resolve({ ok: false, status: 0, message: '网络异常' }),
+    })
+  })
+}
+
+function canRefresh(opts: RequestOptions): boolean {
+  return (
+    !opts._retried &&
+    !opts.silent &&
+    !opts.url.includes('/auth/login') &&
+    !opts.url.includes('/auth/refresh') &&
+    !opts.url.includes('/auth/logout')
+  )
 }
 
 export async function request<T = unknown>(opts: RequestOptions): Promise<T> {
   const method = opts.method || 'GET'
   const showLoading = opts.showLoading !== false
+  const idempotent = opts.idempotent ?? method !== 'GET'
+  const effectiveIdempotencyKey = opts.idempotencyKey || (idempotent ? uuid() : undefined)
+
   if (showLoading) uni.showLoading({ title: '加载中', mask: false })
 
   try {
-    return await new Promise<T>((resolve, reject) => {
-      const header: Record<string, string> = { 'Content-Type': 'application/json' }
-      const token = tokenGetter()
-      if (token) header.Authorization = `Bearer ${token}`
-      const idempotent = opts.idempotent ?? method !== 'GET'
-      if (opts.idempotencyKey) header['Idempotency-Key'] = opts.idempotencyKey
-      else if (idempotent) header['Idempotency-Key'] = uuid()
+    let outcome = await sendRequest<T>(opts, method, effectiveIdempotencyKey)
 
-      uni.request({
-        url: BASE_URL + buildUrl(opts.url, opts.params),
-        method,
-        data: opts.data as Record<string, unknown> | undefined,
-        header,
-        success: (res) => {
-          const status = res.statusCode || 200
-          const body = res.data as Envelope<T> | Record<string, unknown> | undefined
-          if (status >= 200 && status < 300) {
-            if (body && typeof body === 'object' && 'data' in body) {
-              resolve((body as Envelope<T>).data)
-            } else {
-              resolve(undefined as T)
-            }
-            return
-          }
-          const message = messageOf(body, '请求失败')
-          if (opts.silent) {
-            /* 登录页自己显示错误条，不弹 toast、不重定向 */
-          } else if (status === 401) {
-            handleUnauthorized()
-          } else {
-            uni.showToast({ title: message, icon: 'none' })
-          }
-          reject(Object.assign(new Error(message), { status, body }))
-        },
-        fail: () => {
-          if (!opts.silent) uni.showToast({ title: '网络异常', icon: 'none' })
-          reject(new Error('网络异常'))
-        },
-      })
-    })
+    if (!outcome.ok && outcome.status === 401 && canRefresh(opts)) {
+      const refreshed = await tryRefreshToken()
+      if (refreshed) {
+        // showLoading: false —— 复用外层已展示的 loading，保持 show/hide 一一配对
+        return await request<T>({
+          ...opts,
+          idempotencyKey: effectiveIdempotencyKey,
+          _retried: true,
+          showLoading: false,
+        })
+      }
+      handleUnauthorized()
+    }
+
+    if (outcome.ok) return outcome.data as T
+
+    const message = outcome.message || '请求失败'
+    if (!opts.silent) {
+      if (outcome.status === 401) handleUnauthorized()
+      else uni.showToast({ title: message, icon: 'none' })
+    }
+    throw Object.assign(new Error(message), { status: outcome.status, body: outcome.body })
   } finally {
     if (showLoading) uni.hideLoading()
   }
+}
+
+interface UploadOutcome {
+  ok: boolean
+  status: number
+  url?: string
+  message?: string
+  body?: unknown
+}
+
+function sendUpload(filePath: string): Promise<UploadOutcome> {
+  return new Promise((resolve) => {
+    const header: Record<string, string> = {}
+    const token = tokenGetter()
+    if (token) header.Authorization = `Bearer ${token}`
+
+    uni.uploadFile({
+      url: `${BASE_URL}/upload/image`,
+      filePath,
+      name: 'file',
+      header,
+      success: (res) => {
+        const status = res.statusCode || 200
+        let body: unknown
+        try {
+          body = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+        } catch {
+          body = undefined
+        }
+        if (status >= 200 && status < 300) {
+          const payload =
+            body && typeof body === 'object' && 'data' in body
+              ? (body as Envelope<{ url: string }>).data
+              : body
+          const url = (payload as { url?: unknown } | undefined)?.url
+          if (typeof url === 'string' && url) {
+            resolve({ ok: true, status, url })
+            return
+          }
+          resolve({ ok: false, status, message: '上传失败：缺少图片地址', body })
+          return
+        }
+        resolve({ ok: false, status, message: messageOf(body, '上传失败'), body })
+      },
+      fail: () => resolve({ ok: false, status: 0, message: '上传失败' }),
+    })
+  })
 }
 
 /** 图片上传：走 multipart 表单（字段名 file），复用 Bearer 头与信封解包。 */
@@ -134,53 +299,19 @@ export async function uploadImage(
   if (showLoading) uni.showLoading({ title: '上传中', mask: true })
 
   try {
-    return await new Promise<{ url: string }>((resolve, reject) => {
-      const header: Record<string, string> = {}
-      const token = tokenGetter()
-      if (token) header.Authorization = `Bearer ${token}`
+    let outcome = await sendUpload(filePath)
 
-      uni.uploadFile({
-        url: `${BASE_URL}/upload/image`,
-        filePath,
-        name: 'file',
-        header,
-        success: (res) => {
-          const status = res.statusCode || 200
-          let body: unknown
-          try {
-            body = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
-          } catch {
-            body = undefined
-          }
-          if (status >= 200 && status < 300) {
-            const payload =
-              body && typeof body === 'object' && 'data' in body
-                ? (body as Envelope<{ url: string }>).data
-                : body
-            const url = (payload as { url?: unknown } | undefined)?.url
-            if (typeof url === 'string' && url) {
-              resolve({ url })
-              return
-            }
-            const message = '上传失败：缺少图片地址'
-            uni.showToast({ title: message, icon: 'none' })
-            reject(Object.assign(new Error(message), { status, body }))
-            return
-          }
-          const message = messageOf(body, '上传失败')
-          if (status === 401) {
-            handleUnauthorized()
-          } else {
-            uni.showToast({ title: message, icon: 'none' })
-          }
-          reject(Object.assign(new Error(message), { status, body }))
-        },
-        fail: () => {
-          uni.showToast({ title: '上传失败', icon: 'none' })
-          reject(new Error('上传失败'))
-        },
-      })
-    })
+    if (!outcome.ok && outcome.status === 401) {
+      const refreshed = await tryRefreshToken()
+      if (refreshed) outcome = await sendUpload(filePath)
+      if (!outcome.ok && outcome.status === 401) handleUnauthorized()
+    }
+
+    if (outcome.ok) return { url: outcome.url as string }
+
+    const message = outcome.message || '上传失败'
+    if (outcome.status !== 401) uni.showToast({ title: message, icon: 'none' })
+    throw Object.assign(new Error(message), { status: outcome.status, body: outcome.body })
   } finally {
     if (showLoading) uni.hideLoading()
   }
