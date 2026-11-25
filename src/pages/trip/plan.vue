@@ -26,6 +26,16 @@
               </view>
             </picker>
           </view>
+          <view class="named">
+            <text class="named-lb">出车名称</text>
+            <input
+              v-model="tripName"
+              class="named-inp"
+              maxlength="50"
+              placeholder="选填，默认使用路线名称"
+              placeholder-style="color:#a8b3c2"
+            />
+          </view>
           <text class="hint">{{ dateHint }}</text>
         </view>
 
@@ -125,13 +135,71 @@
         <view class="preview">
           <view class="pnums">
             <view class="pnum"><text class="pv">{{ draft?.customer_count ?? willCall }}</text><text class="pk">将列入询单</text></view>
-            <view class="pnum"><text class="pv">{{ draft?.join_order_count ?? 0 }}</text><text class="pk">自动加入订单</text></view>
+            <view class="pnum"><text class="pv">{{ includedJoinCount }}</text><text class="pk">自动加入订单</text></view>
             <view class="pnum"><text class="pv">{{ draft?.move_order_count ?? 0 }}</text><text class="pk">自动挪单</text></view>
           </view>
+
+          <view v-if="draft?.join_orders?.length" class="pblock">
+            <view class="pb-hd">
+              <text class="pb-t">待排车订单</text>
+              <text class="pb-s">点订单可排除 · 将加入 {{ includedJoinCount }}/{{ draft.join_orders.length }}</text>
+            </view>
+            <view
+              v-for="o in draft.join_orders"
+              :key="o.order_id"
+              class="porder"
+              :class="{ off: excludedOrderIds.has(o.order_id) }"
+              @tap="toggleOrder(o.order_id)"
+            >
+              <view class="po-chk" :class="{ on: !excludedOrderIds.has(o.order_id) }">
+                <text v-if="!excludedOrderIds.has(o.order_id)" class="po-tick">✓</text>
+              </view>
+              <view class="po-main">
+                <view class="po-top">
+                  <text class="po-no">{{ o.order_no }}</text>
+                  <text class="po-amt">{{ formatMoney(o.total_amount) }}</text>
+                </view>
+                <text class="po-sub">{{ o.customer_name }} · {{ o.region_name }}</text>
+              </view>
+            </view>
+          </view>
+
+          <view v-if="draft?.move_orders?.length" class="pblock">
+            <view class="pb-hd">
+              <text class="pb-t">将自动挪过来的订单</text>
+              <text class="pb-s">{{ draft.move_orders.length }} 单</text>
+            </view>
+            <view v-for="o in draft.move_orders" :key="o.order_id" class="porder plain">
+              <view class="po-main">
+                <view class="po-top">
+                  <text class="po-no">{{ o.order_no }}</text>
+                  <text class="po-amt">{{ formatMoney(o.total_amount) }}</text>
+                </view>
+                <text class="po-sub">{{ o.customer_name }} · {{ o.from_trip_date }} → {{ o.to_trip_date }}</text>
+              </view>
+            </view>
+          </view>
+
+          <view v-if="isEdit && draft?.return_orders?.length" class="pblock">
+            <view class="pb-hd">
+              <text class="pb-t">将退回待排车</text>
+              <text class="pb-s">{{ draft.return_orders.length }} 单</text>
+            </view>
+            <view v-for="o in draft.return_orders" :key="o.order_id" class="porder plain">
+              <view class="po-main">
+                <view class="po-top">
+                  <text class="po-no">{{ o.order_no }}</text>
+                  <text class="po-amt">{{ formatMoney(o.total_amount) }}</text>
+                </view>
+                <text class="po-sub">{{ o.customer_name }} · {{ o.region_name }}</text>
+              </view>
+            </view>
+          </view>
+
           <view class="pmsgs">
             <text class="pmsg">· 保存后本趟生成「计划中」，地点内正常客户进询单清单</text>
-            <text v-if="draft?.join_order_count" class="pmsg">
-              · {{ draft.join_order_count }} 张待排车订单按地点自动加入，可在 Web 端排除个别订单
+            <text v-if="includedJoinCount" class="pmsg">
+              · {{ includedJoinCount }} 张待排车订单按地点自动加入，可在上方排除个别订单
             </text>
             <text v-if="draft?.move_order_count" class="pmsg">
               · {{ draft.move_order_count }} 张更晚趟次上的待配送订单会自动挪到本趟（写调度备注）
@@ -150,7 +218,7 @@
         <text class="fi-s">{{ selectedStops.length ? '保存后可在出车列表查看' : '至少选择一个县城或乡镇' }}</text>
       </view>
       <view class="save-btn" :class="{ off: !selectedStops.length || saving }" @tap="save">
-        {{ saving ? '保存中…' : '保存出车' }}
+        {{ saving ? '保存中…' : isEdit ? '保存修改' : '保存出车' }}
       </view>
     </view>
   </view>
@@ -161,12 +229,15 @@ import { computed, reactive, ref, watch } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { customerApi, deliveryApi, regionApi } from '@/api'
 import { useAuthStore } from '@/stores/auth'
-import { cnDate, toNum, ymd } from '@/utils/format'
+import { cnDate, formatMoney, ymd } from '@/utils/format'
 import type {
   CountyCorridorSummary,
   RegionNode,
   RouteStopIn,
+  RouteStopOrigin,
   RouteTemplate,
+  RouteTrip,
+  RouteTripCreatePayload,
   RouteTripDraft,
   SalesOption,
 } from '@/types'
@@ -188,14 +259,34 @@ interface CountyView extends CountyGroup {
   selectedTowns: Town[]
 }
 
+interface RefStop {
+  region_id: number
+  region_name: string
+  parent_region_name?: string | null
+}
+
+interface SelectedStop {
+  region_id: number
+  name: string
+  origin: RouteStopOrigin
+}
+
 const auth = useAuthStore()
+const canPlan = computed(() => auth.isAdmin && (auth.can('delivery.route.manage') || !auth.permissions.length))
 const today = ymd(0)
+const tripId = ref(0)
+const isEdit = computed(() => tripId.value > 0)
+const editTrip = ref<RouteTrip | null>(null)
 const date = ref(ymd(1))
+const tripName = ref('')
 const templateId = ref<number | null>(null)
 const templates = ref<RouteTemplate[]>([])
 const corridors = ref<CountyCorridorSummary[]>([])
 const counties = ref<CountyGroup[]>([])
+const corridorTownMap = ref<Map<number, Town[]>>(new Map())
 const selected = reactive(new Set<number>())
+const stopOrder = ref<number[]>([])
+const excludedOrderIds = reactive(new Set<number>())
 const fold = reactive<Record<number, boolean>>({})
 const owners = ref<SalesOption[]>([])
 const ownerId = ref<number | null>(null)
@@ -203,6 +294,7 @@ const draft = ref<RouteTripDraft | null>(null)
 const draftError = ref('')
 const loading = ref(true)
 const saving = ref(false)
+const prevTemplateName = ref<string | null>(null)
 const pickedTemplate = computed(() => templates.value.find((t) => t.id === templateId.value) || null)
 
 const dateOptions = computed(() => [
@@ -241,16 +333,69 @@ const countyGroups = computed<CountyView[]>(() =>
   })),
 )
 
-/** 计算已选地点：按县城 / 乡镇树顺序，转成后端 stops。 */
-const selectedStops = computed(() => {
-  const out: { region_id: number; name: string }[] = []
+const regionNames = computed(() => {
+  const map = new Map<number, string>()
   counties.value.forEach((c) => {
-    if (selected.has(c.id)) out.push({ region_id: c.id, name: c.name })
+    map.set(c.id, c.name)
+    c.towns.forEach((t) => map.set(t.id, t.name))
+  })
+  templates.value.forEach((t) =>
+    t.stops.forEach((s) => {
+      if (!map.has(s.region_id)) map.set(s.region_id, s.region_name)
+    }),
+  )
+  editTrip.value?.stops.forEach((s) => {
+    if (!map.has(s.region_id)) map.set(s.region_id, s.region_name)
+  })
+  return map
+})
+
+const corridorTownIds = computed(() => {
+  const ids = new Set<number>()
+  corridorTownMap.value.forEach((towns) => towns.forEach((t) => ids.add(t.id)))
+  return ids
+})
+
+function asOrigin(value: unknown): RouteStopOrigin | null {
+  return value === 'county' || value === 'corridor' || value === 'manual' ? value : null
+}
+
+/** 编辑趟次 / 常用路线里的原始 origin 优先，避免二次编辑时语义漂移。 */
+function baseOrigin(id: number): RouteStopOrigin | null {
+  if (isEdit.value && editTrip.value) {
+    const stop = editTrip.value.stops.find((s) => s.region_id === id)
+    const origin = asOrigin(stop?.origin)
+    if (origin) return origin
+  }
+  const templateStop = pickedTemplate.value?.stops.find((s) => s.region_id === id)
+  return asOrigin(templateStop?.origin)
+}
+
+function originOf(id: number): RouteStopOrigin {
+  const base = baseOrigin(id)
+  if (base) return base
+  if (counties.value.some((c) => c.id === id)) return 'county'
+  if (corridorTownIds.value.has(id)) return 'corridor'
+  return 'manual'
+}
+
+/** 已选地点：优先按模板 / 已有趟次顺序，手动新增的按勾选先后追加。 */
+const selectedStops = computed<SelectedStop[]>(() => {
+  const ids: number[] = []
+  stopOrder.value.forEach((id) => {
+    if (selected.has(id) && !ids.includes(id)) ids.push(id)
+  })
+  counties.value.forEach((c) => {
+    if (selected.has(c.id) && !ids.includes(c.id)) ids.push(c.id)
     c.towns.forEach((t) => {
-      if (selected.has(t.id)) out.push({ region_id: t.id, name: t.name })
+      if (selected.has(t.id) && !ids.includes(t.id)) ids.push(t.id)
     })
   })
-  return out
+  return ids.map((id) => ({
+    region_id: id,
+    name: regionNames.value.get(id) || `地点 ${id}`,
+    origin: originOf(id),
+  }))
 })
 
 const willCall = computed(() => {
@@ -268,14 +413,23 @@ function isCountyOn(c: CountyView): boolean {
   return selected.has(c.id)
 }
 
+function setPicked(id: number, on: boolean) {
+  if (on) {
+    selected.add(id)
+    if (!stopOrder.value.includes(id)) stopOrder.value.push(id)
+  } else {
+    selected.delete(id)
+    const idx = stopOrder.value.indexOf(id)
+    if (idx >= 0) stopOrder.value.splice(idx, 1)
+  }
+}
+
 function toggleCounty(id: number) {
-  if (selected.has(id)) selected.delete(id)
-  else selected.add(id)
+  setPicked(id, !selected.has(id))
 }
 
 function toggleTown(id: number) {
-  if (selected.has(id)) selected.delete(id)
-  else selected.add(id)
+  setPicked(id, !selected.has(id))
 }
 
 function toggleFold(ci: number) {
@@ -296,6 +450,8 @@ function onOwnerChange(e: { detail: { value: number | string } }) {
 function pickTemplate(id: number | null) {
   templateId.value = id
   selected.clear()
+  stopOrder.value = []
+  excludedOrderIds.clear()
   Object.keys(fold).forEach((k) => delete fold[Number(k)])
   if (id === null) {
     draft.value = null
@@ -304,16 +460,29 @@ function pickTemplate(id: number | null) {
   }
   const tpl = templates.value.find((t) => t.id === id)
   if (!tpl) return
-  tpl.stops.forEach((s) => selected.add(s.region_id))
+  tpl.stops.forEach((s) => {
+    selected.add(s.region_id)
+    if (!stopOrder.value.includes(s.region_id)) stopOrder.value.push(s.region_id)
+  })
   if (tpl.default_owner_id) ownerId.value = tpl.default_owner_id
   if (tpl.next_trip_date && tpl.next_trip_date >= today) date.value = tpl.next_trip_date
+  if (!isEdit.value) {
+    const current = tripName.value.trim()
+    if (!current || current === prevTemplateName.value) tripName.value = tpl.name
+  }
+  prevTemplateName.value = tpl.name
   const firstCounty = countyGroups.value.findIndex((c) => selected.has(c.id) || c.towns.some((t) => selected.has(t.id)))
   if (firstCounty >= 0) fold[firstCounty] = true
   uni.showToast({ title: `已带出「${tpl.name}」的地点`, icon: 'none' })
 }
 
-/** 预处理：优先用县城沿线（Web 端维护的乡镇顺序），没有配置时退回行政区划树。 */
-function buildCounties(tree: RegionNode[], corridorTowns: Map<number, Town[]>) {
+/**
+ * 预处理可选地点：
+ * 1. 已配置沿线的县城优先，保留 Web 端维护的乡镇顺序；
+ * 2. 模板 / 已有趟次引用但不在沿线列表里的乡镇补进对应县城；
+ * 3. 其余有客户或被引用的县城从行政区划树补充，避免已选地点被静默丢弃。
+ */
+function buildCounties(tree: RegionNode[], corridorTowns: Map<number, Town[]>, refStops: RefStop[]) {
   const flat: RegionNode[] = []
   const walk = (nodes: RegionNode[]) => {
     nodes.forEach((n) => {
@@ -334,60 +503,158 @@ function buildCounties(tree: RegionNode[], corridorTowns: Map<number, Town[]>) {
   const countyCount = (id: number) => byId.get(id)?.customer_count ?? 0
 
   const groups: CountyGroup[] = []
-  if (corridors.value.length) {
-    corridors.value.forEach((c) => {
-      groups.push({
-        id: c.county_region_id,
-        name: c.county_name,
-        customerCount: countyCount(c.county_region_id),
-        towns: corridorTowns.get(c.county_region_id) || [],
+  const groupById = new Map<number, CountyGroup>()
+  const addGroup = (group: CountyGroup) => {
+    if (groupById.has(group.id)) return
+    groups.push(group)
+    groupById.set(group.id, group)
+  }
+
+  corridors.value.forEach((c) => {
+    addGroup({
+      id: c.county_region_id,
+      name: c.county_name,
+      customerCount: countyCount(c.county_region_id),
+      towns: [...(corridorTowns.get(c.county_region_id) || [])],
+    })
+  })
+
+  const parentCounty = (stop: RefStop): { id: number; name: string } | null => {
+    const node = byId.get(stop.region_id)
+    if (node) {
+      if (node.level === 3) return { id: node.id, name: node.name }
+      if (node.parent_id != null) {
+        const parent = byId.get(node.parent_id)
+        if (parent && parent.level === 3) return { id: parent.id, name: parent.name }
+      }
+    }
+    if (stop.parent_region_name) {
+      const group = groups.find((g) => g.name === stop.parent_region_name)
+      if (group) return { id: group.id, name: group.name }
+      const county = flat.find((n) => n.level === 3 && n.name === stop.parent_region_name)
+      if (county) return { id: county.id, name: county.name }
+    }
+    return null
+  }
+
+  const mergeTown = (group: CountyGroup, stop: RefStop) => {
+    if (byId.get(stop.region_id)?.level === 3) return
+    if (group.towns.some((t) => t.id === stop.region_id)) return
+    group.towns.push({
+      id: stop.region_id,
+      name: stop.region_name,
+      customerCount: byId.get(stop.region_id)?.customer_count ?? 0,
+    })
+  }
+
+  refStops.forEach((stop) => {
+    const county = parentCounty(stop)
+    if (!county) return
+    const group = groupById.get(county.id)
+    if (group) mergeTown(group, stop)
+  })
+
+  const referencedCountyIds = new Set<number>()
+  refStops.forEach((stop) => {
+    const county = parentCounty(stop)
+    if (county) referencedCountyIds.add(county.id)
+  })
+
+  flat
+    .filter((n) => n.level === 3)
+    .forEach((county) => {
+      if (groupById.has(county.id)) return
+      const towns = (byParent.get(county.id) || [])
+        .filter((t) => t.level >= 4)
+        .map((t) => ({ id: t.id, name: t.name, customerCount: t.customer_count }))
+      refStops.forEach((stop) => {
+        if (stop.region_id === county.id) return
+        const node = byId.get(stop.region_id)
+        const underCounty = node ? node.parent_id === county.id : stop.parent_region_name === county.name
+        if (underCounty && !towns.some((t) => t.id === stop.region_id)) {
+          towns.push({
+            id: stop.region_id,
+            name: stop.region_name,
+            customerCount: node?.customer_count ?? 0,
+          })
+        }
+      })
+      if (
+        county.customer_count <= 0 &&
+        !towns.some((t) => t.customerCount > 0) &&
+        !referencedCountyIds.has(county.id)
+      ) {
+        return
+      }
+      addGroup({
+        id: county.id,
+        name: county.name,
+        customerCount: county.customer_count,
+        towns,
       })
     })
-  } else {
-    flat
-      .filter((n) => n.level === 3)
-      .forEach((county) => {
-        const towns = (byParent.get(county.id) || [])
-          .filter((t) => t.level >= 4)
-          .map((t) => ({ id: t.id, name: t.name, customerCount: t.customer_count }))
-        if (county.customer_count <= 0 && !towns.some((t) => t.customerCount > 0)) return
-        groups.push({
-          id: county.id,
-          name: county.name,
-          customerCount: county.customer_count,
-          towns,
-        })
-      })
-  }
+
+  // 行政区划树里也查不到的引用地点，按名称兜底成组
+  refStops.forEach((stop) => {
+    const county = parentCounty(stop)
+    if (!county || groupById.has(county.id)) return
+    addGroup({
+      id: county.id,
+      name: county.name,
+      customerCount: countyCount(county.id),
+      towns: [],
+    })
+    const group = groupById.get(county.id)
+    if (group) mergeTown(group, stop)
+  })
+
   counties.value = groups
   if (groups.length) fold[0] = true
 }
 
 let draftTimer: ReturnType<typeof setTimeout> | undefined
+let draftSeq = 0
+
+const includedJoinCount = computed(() => {
+  const list = draft.value?.join_orders
+  if (list?.length) return list.filter((o) => !excludedOrderIds.has(o.order_id)).length
+  return draft.value?.join_order_count ?? 0
+})
+
+function toggleOrder(id: number) {
+  if (excludedOrderIds.has(id)) excludedOrderIds.delete(id)
+  else excludedOrderIds.add(id)
+}
 
 async function refreshDraft() {
+  const seq = ++draftSeq
   if (!selectedStops.value.length) {
     draft.value = null
     draftError.value = ''
     return
   }
-  const stops: RouteStopIn[] = selectedStops.value.map((s) => {
-    const inTemplate = pickedTemplate.value?.stops.some((x) => x.region_id === s.region_id)
-    return { region_id: s.region_id, origin: inTemplate ? 'template' : 'manual' }
-  })
+  const stops: RouteStopIn[] = selectedStops.value.map((s) => ({ region_id: s.region_id, origin: s.origin }))
   try {
-    draft.value = await deliveryApi.draftTrip({
+    const res = await deliveryApi.draftTrip({
       trip_date: date.value,
       template_id: templateId.value,
+      trip_id: isEdit.value ? tripId.value : null,
       stops,
-      exclude_order_ids: [],
+      exclude_order_ids: Array.from(excludedOrderIds),
     })
+    if (seq !== draftSeq) return
+    draft.value = res
     draftError.value = ''
   } catch (error) {
+    if (seq !== draftSeq) return
     draft.value = null
     draftError.value = (error as Error).message || '请稍后重试'
   }
 }
+
+watch(date, () => {
+  excludedOrderIds.clear()
+})
 
 watch(
   () => [date.value, templateId.value, selectedStops.value.map((s) => s.region_id).join(',')].join('|'),
@@ -397,23 +664,48 @@ watch(
   },
 )
 
-onLoad(async () => {
+onLoad(async (opts) => {
   auth.restore()
-  if (auth.user && !auth.isAdmin) {
+  if (auth.user && !canPlan.value) {
     uni.showToast({ title: '只有管理员能安排出车', icon: 'none' })
     setTimeout(() => uni.navigateBack(), 800)
     return
   }
-  const [tplRes, corrRes, treeRes, ownerRes] = await Promise.all([
+
+  const id = Number(opts?.id || 0)
+  if (id > 0) {
+    tripId.value = id
+    uni.setNavigationBarTitle({ title: '修改出车' })
+  }
+
+  const tripPromise: Promise<RouteTrip | null> =
+    id > 0 ? deliveryApi.getTrip(id).catch(() => null) : Promise.resolve(null)
+
+  const [tplRes, corrRes, treeRes, ownerRes, tripRes] = await Promise.all([
     deliveryApi.templates(true).catch(() => [] as RouteTemplate[]),
     deliveryApi.corridors().catch(() => [] as CountyCorridorSummary[]),
     regionApi.tree().catch(() => [] as RegionNode[]),
     customerApi.salesOptions().catch(() => [] as SalesOption[]),
+    tripPromise,
   ])
   templates.value = tplRes
   corridors.value = corrRes
   owners.value = ownerRes
   ownerId.value = ownerRes.find((o) => o.is_owner)?.id || ownerRes[0]?.id || auth.user?.id || null
+
+  if (id > 0) {
+    if (!tripRes) {
+      uni.showToast({ title: '趟次加载失败', icon: 'none' })
+      setTimeout(() => uni.navigateBack(), 800)
+      return
+    }
+    if (tripRes.status !== 'planned') {
+      uni.showToast({ title: '当前状态不可修改', icon: 'none' })
+      setTimeout(() => uni.navigateBack(), 800)
+      return
+    }
+    editTrip.value = tripRes
+  }
 
   // 沿线乡镇从县城沿线详情取，带出 Web 端维护的顺序
   const corridorTowns = new Map<number, Town[]>()
@@ -429,7 +721,44 @@ onLoad(async () => {
       )
     })
   }
-  buildCounties(treeRes, corridorTowns)
+  corridorTownMap.value = corridorTowns
+
+  const refStops: RefStop[] = []
+  tplRes.forEach((t) =>
+    t.stops.forEach((s) =>
+      refStops.push({
+        region_id: s.region_id,
+        region_name: s.region_name,
+        parent_region_name: s.parent_region_name,
+      }),
+    ),
+  )
+  tripRes?.stops.forEach((s) =>
+    refStops.push({
+      region_id: s.region_id,
+      region_name: s.region_name,
+      parent_region_name: s.parent_region_name,
+    }),
+  )
+  buildCounties(treeRes, corridorTowns, refStops)
+
+  if (tripRes) {
+    date.value = tripRes.trip_date
+    tripName.value = tripRes.name || ''
+    templateId.value = tripRes.template_id
+    ownerId.value = tripRes.owner_id
+    selected.clear()
+    stopOrder.value = []
+    tripRes.stops.forEach((s) => {
+      selected.add(s.region_id)
+      if (!stopOrder.value.includes(s.region_id)) stopOrder.value.push(s.region_id)
+    })
+    const firstCounty = countyGroups.value.findIndex(
+      (c) => selected.has(c.id) || c.towns.some((t) => selected.has(t.id)),
+    )
+    if (firstCounty >= 0) fold[firstCounty] = true
+  }
+
   loading.value = false
 })
 
@@ -441,23 +770,41 @@ async function save() {
   }
   saving.value = true
   try {
-    const stops: RouteStopIn[] = selectedStops.value.map((s) => {
-      const inTemplate = pickedTemplate.value?.stops.some((x) => x.region_id === s.region_id)
-      return { region_id: s.region_id, origin: inTemplate ? 'template' : 'manual' }
-    })
-    const res = await deliveryApi.createTrip({
+    const stops: RouteStopIn[] = selectedStops.value.map((s) => ({ region_id: s.region_id, origin: s.origin }))
+    const payload: RouteTripCreatePayload = {
       trip_date: date.value,
+      name: tripName.value.trim() || null,
       owner_id: ownerId.value,
       template_id: templateId.value,
       stops,
-      exclude_order_ids: [],
-    })
-    const joined = res.joined_orders.length
-    uni.showToast({
-      title: `已安排 ${date.value} · 询单 ${draft.value?.customer_count ?? willCall.value} 家${joined ? ` · 加入 ${joined} 单` : ''}`,
-      icon: 'none',
-    })
-    setTimeout(() => uni.navigateBack(), 900)
+      exclude_order_ids: Array.from(excludedOrderIds),
+    }
+    const res = isEdit.value
+      ? await deliveryApi.updateTrip(tripId.value, payload)
+      : await deliveryApi.createTrip(payload)
+
+    const joined = res.joined_orders?.length ?? 0
+    const moved = res.moved_orders?.length ?? 0
+    const returned = res.returned_orders?.length ?? 0
+    const extras = [
+      joined ? `加入 ${joined} 单` : '',
+      moved ? `挪单 ${moved} 单` : '',
+      returned ? `退回 ${returned} 单` : '',
+    ].filter(Boolean)
+    const summary = `${isEdit.value ? '已保存修改' : '已安排'} ${date.value} · 询单 ${draft.value?.customer_count ?? willCall.value} 家${extras.length ? ` · ${extras.join(' · ')}` : ''}`
+
+    if (res.warnings?.length) {
+      uni.showModal({
+        title: '已保存，请留意',
+        content: [summary, ...res.warnings.map((w) => w.message || w.code)].join('\n'),
+        showCancel: false,
+        success: () => uni.navigateBack(),
+        fail: () => uni.navigateBack(),
+      })
+    } else {
+      uni.showToast({ title: summary, icon: 'none' })
+      setTimeout(() => uni.navigateBack(), 900)
+    }
   } catch {
     /* 请求封装已提示 */
   } finally {
@@ -494,6 +841,17 @@ async function save() {
 .day-t { display: block; font-size: 24rpx; font-weight: 600; color: #2f3b4d; }
 .day.on .day-t { color: $uni-color-primary; }
 .day-s { display: block; margin-top: 2rpx; font-size: 18rpx; color: #9aa6b6; }
+
+/* 出车名称 */
+.named {
+  display: flex; align-items: center; gap: 16rpx; margin-top: 16rpx; padding-top: 16rpx;
+  border-top: 1rpx dashed #eef1f5;
+}
+.named-lb { flex: none; font-size: 23rpx; font-weight: 600; color: #46536a; }
+.named-inp {
+  flex: 1; min-width: 0; height: 60rpx; padding: 0 18rpx; border-radius: 12rpx;
+  background: #f6f8fb; font-size: 23rpx; color: #1c2534; box-sizing: border-box;
+}
 
 /* 路线 */
 .routes { white-space: nowrap; margin-top: 14rpx; }
@@ -570,6 +928,27 @@ async function save() {
 .pmsgs { margin-top: 18rpx; display: flex; flex-direction: column; gap: 6rpx; }
 .pmsg { font-size: 19rpx; line-height: 1.5; color: rgba(255, 255, 255, 0.68); }
 .pmsg.warn { color: #fcd34d; }
+
+/* 预览 · 订单明细 */
+.pblock { margin-top: 18rpx; padding-top: 16rpx; border-top: 1rpx solid rgba(255, 255, 255, 0.12); }
+.pb-hd { display: flex; align-items: baseline; justify-content: space-between; gap: 12rpx; }
+.pb-t { font-size: 21rpx; font-weight: 600; color: rgba(255, 255, 255, 0.9); }
+.pb-s { font-size: 18rpx; color: rgba(255, 255, 255, 0.52); }
+.porder { display: flex; align-items: flex-start; gap: 14rpx; margin-top: 14rpx; }
+.porder.off { opacity: 0.5; }
+.porder.off .po-no { text-decoration: line-through; }
+.po-chk {
+  flex: none; width: 32rpx; height: 32rpx; margin-top: 2rpx; border-radius: 8rpx; box-sizing: border-box;
+  border: 2rpx solid rgba(255, 255, 255, 0.4);
+  display: flex; align-items: center; justify-content: center;
+}
+.po-chk.on { background: $uni-color-primary; border-color: $uni-color-primary; }
+.po-tick { font-size: 16rpx; font-weight: 700; line-height: 1; color: #fff; }
+.po-main { flex: 1; min-width: 0; }
+.po-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12rpx; }
+.po-no { font-size: 20rpx; color: rgba(255, 255, 255, 0.86); }
+.po-amt { flex: none; font-size: 20rpx; font-weight: 600; color: #fff; }
+.po-sub { display: block; margin-top: 2rpx; font-size: 18rpx; color: rgba(255, 255, 255, 0.55); }
 
 /* 底栏 */
 .footer {

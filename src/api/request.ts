@@ -124,3 +124,64 @@ export async function request<T = unknown>(opts: RequestOptions): Promise<T> {
     if (showLoading) uni.hideLoading()
   }
 }
+
+/** 图片上传：走 multipart 表单（字段名 file），复用 Bearer 头与信封解包。 */
+export async function uploadImage(
+  filePath: string,
+  opts: { showLoading?: boolean } = {},
+): Promise<{ url: string }> {
+  const showLoading = opts.showLoading !== false
+  if (showLoading) uni.showLoading({ title: '上传中', mask: true })
+
+  try {
+    return await new Promise<{ url: string }>((resolve, reject) => {
+      const header: Record<string, string> = {}
+      const token = tokenGetter()
+      if (token) header.Authorization = `Bearer ${token}`
+
+      uni.uploadFile({
+        url: `${BASE_URL}/upload/image`,
+        filePath,
+        name: 'file',
+        header,
+        success: (res) => {
+          const status = res.statusCode || 200
+          let body: unknown
+          try {
+            body = typeof res.data === 'string' ? JSON.parse(res.data) : res.data
+          } catch {
+            body = undefined
+          }
+          if (status >= 200 && status < 300) {
+            const payload =
+              body && typeof body === 'object' && 'data' in body
+                ? (body as Envelope<{ url: string }>).data
+                : body
+            const url = (payload as { url?: unknown } | undefined)?.url
+            if (typeof url === 'string' && url) {
+              resolve({ url })
+              return
+            }
+            const message = '上传失败：缺少图片地址'
+            uni.showToast({ title: message, icon: 'none' })
+            reject(Object.assign(new Error(message), { status, body }))
+            return
+          }
+          const message = messageOf(body, '上传失败')
+          if (status === 401) {
+            handleUnauthorized()
+          } else {
+            uni.showToast({ title: message, icon: 'none' })
+          }
+          reject(Object.assign(new Error(message), { status, body }))
+        },
+        fail: () => {
+          uni.showToast({ title: '上传失败', icon: 'none' })
+          reject(new Error('上传失败'))
+        },
+      })
+    })
+  } finally {
+    if (showLoading) uni.hideLoading()
+  }
+}

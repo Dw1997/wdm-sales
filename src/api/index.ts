@@ -1,7 +1,7 @@
 // src/api/index.ts - 公开 API 门面：页面只从这里导入。
 // 路径与字段以 docs/00-core/api/ 为准。
 
-import { request } from './request'
+import { request, uploadImage } from './request'
 import type {
   CallListCustomer,
   CallResult,
@@ -41,6 +41,17 @@ import type {
   PromotionQrcode,
   PromotionStats,
   PromotionUrlLink,
+  PurchaseConfirmPayload,
+  PurchaseCreatePayload,
+  PurchasePlanPreviewPayload,
+  PurchasePlanPreviewResult,
+  PurchasePlanToReceiptsPayload,
+  PurchasePlanToReceiptsResult,
+  PurchaseReceipt,
+  PurchaseResult,
+  PurchaseSourceType,
+  PurchaseStatus,
+  PurchaseUpdatePayload,
   QuoteResponse,
   RegionNode,
   ReturnCreatePayload,
@@ -62,8 +73,20 @@ import type {
   Spu,
   TokenResponse,
   UserInfo,
+  Vendor,
+  VendorAccount,
+  VendorLedgerItem,
+  VendorPayablePage,
+  VendorPaymentPayload,
+  VendorPaymentResult,
   VisitRecord,
+  Warn,
 } from '@/types'
+
+// ---------- 上传 ----------
+export const uploadApi = {
+  image: (filePath: string) => uploadImage(filePath),
+}
 
 // ---------- 身份 ----------
 export const authApi = {
@@ -371,6 +394,120 @@ export const returnApi = {
     }),
 }
 
+// ---------- 供应商与采购入库（purchases.md） ----------
+export const vendorApi = {
+  list: (params: {
+    page?: number
+    page_size?: number
+    keyword?: string
+    type?: string
+    status?: string
+  } = {}) => request<Page<Vendor>>({ url: '/vendors', params, showLoading: false }),
+}
+
+export const vendorFinanceApi = {
+  payables: (params: {
+    keyword?: string
+    type?: string
+    only_owed?: boolean
+    order_by?: 'payable_desc' | 'payable_asc' | 'id'
+    page?: number
+    page_size?: number
+  } = {}) =>
+    request<VendorPayablePage>({ url: '/vendors/payables', params, showLoading: false }),
+
+  account: (vendorId: number) =>
+    request<VendorAccount>({ url: `/vendors/${vendorId}/account`, showLoading: false }),
+
+  ledger: (
+    vendorId: number,
+    params: {
+      date_from?: string
+      date_to?: string
+      page?: number
+      page_size?: number
+    } = {},
+  ) =>
+    request<Page<VendorLedgerItem>>({
+      url: `/vendors/${vendorId}/ledger`,
+      params,
+      showLoading: false,
+    }),
+
+  pay: (payload: VendorPaymentPayload, opts: { idempotencyKey?: string } = {}) =>
+    request<VendorPaymentResult>({
+      url: '/vendor-payments',
+      method: 'POST',
+      data: payload,
+      idempotencyKey: opts.idempotencyKey,
+    }),
+}
+
+export const purchaseApi = {
+  list: (params: {
+    page?: number
+    page_size?: number
+    source_type?: PurchaseSourceType | ''
+    status?: PurchaseStatus | ''
+    vendor_id?: number
+    spu_id?: number
+    sku_id?: number
+    date_from?: string
+    date_to?: string
+  } = {}) =>
+    request<Page<PurchaseReceipt>>({
+      url: '/purchase-receipts',
+      params,
+      showLoading: false,
+    }),
+
+  get: (id: number) =>
+    request<PurchaseReceipt>({ url: `/purchase-receipts/${id}`, showLoading: false }),
+
+  create: (payload: PurchaseCreatePayload) =>
+    request<PurchaseReceipt>({ url: '/purchase-receipts', method: 'POST', data: payload }),
+
+  update: (id: number, payload: PurchaseUpdatePayload) =>
+    request<PurchaseResult>({
+      url: `/purchase-receipts/${id}`,
+      method: 'PUT',
+      data: payload,
+    }),
+
+  confirm: (id: number, payload: PurchaseConfirmPayload) =>
+    request<PurchaseResult>({
+      url: `/purchase-receipts/${id}/confirm`,
+      method: 'POST',
+      data: payload,
+    }),
+
+  cancel: (id: number, version: number) =>
+    request<PurchaseReceipt>({
+      url: `/purchase-receipts/${id}/cancel`,
+      method: 'POST',
+      data: { version },
+      idempotent: false,
+    }),
+}
+
+export const purchasePlanApi = {
+  preview: (payload: PurchasePlanPreviewPayload = {}) =>
+    request<PurchasePlanPreviewResult>({
+      url: '/purchase-plans/preview',
+      method: 'POST',
+      data: payload,
+      showLoading: false,
+      idempotent: false,
+    }),
+
+  toReceipts: (payload: PurchasePlanToReceiptsPayload) =>
+    request<PurchasePlanToReceiptsResult>({
+      url: '/purchase-plans/to-receipts',
+      method: 'POST',
+      data: payload,
+    }),
+}
+
 // ---------- 财务与提额 ----------
 export const financeApi = {
   commissions: (q: PageQuery = {}) =>
@@ -466,7 +603,7 @@ export const deliveryApi = {
     request<RouteTripSaveResult>({ url: `/route-trips/${id}`, method: 'PUT', data: payload }),
 
   cancelTrip: (id: number) =>
-    request<{ route_trip: RouteTrip; returned_orders: RouteTripOrder[] }>({
+    request<{ route_trip: RouteTrip; returned_orders: RouteTripOrder[]; warnings?: Warn[] }>({
       url: `/route-trips/${id}/cancel`,
       method: 'POST',
     }),
@@ -614,11 +751,12 @@ export const messageApi = {
 // ---------- 推广与拜访签到（customers.md §10） ----------
 export const promotionApi = {
   stats: () => request<PromotionStats>({ url: '/promotion/stats', showLoading: false }),
-  qrcode: (refresh = false) =>
+  qrcode: (refresh = false, options: { silent?: boolean } = {}) =>
     request<PromotionQrcode>({
       url: '/promotion/qrcode',
       params: refresh ? { refresh: true } : undefined,
       showLoading: false,
+      silent: options.silent,
     }),
   urlLink: () =>
     request<PromotionUrlLink>({

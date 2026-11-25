@@ -23,7 +23,7 @@
           <view v-if="customer.contact_name || customer.phone" class="hero-row">
             <text class="pin">👤</text>
             <text class="hv">{{ customer.contact_name || '—' }}</text>
-            <text v-if="customer.phone" class="hv strong">{{ formatPhone(customer.phone) }}</text>
+            <text v-if="customer.phone" class="hv strong phone-link" @tap="callPhone">{{ formatPhone(customer.phone) }}</text>
           </view>
           <view v-if="customer.sales_name" class="hero-row">
             <text class="pin">🏷</text>
@@ -96,6 +96,31 @@
         <text class="usage-text">额度使用 {{ usagePercent }}%</text>
       </view>
 
+      <view class="card">
+        <view class="card-hd">
+          <text class="card-title">可用优惠券</text>
+          <text class="card-extra">{{ couponCount }} 张 · 合计 {{ formatMoney(couponTotalAmount) }}</text>
+        </view>
+        <view v-if="coupons.length">
+          <view v-for="c in coupons" :key="c.id" class="coupon">
+            <view class="coupon-face">
+              <text class="coupon-face-value">{{ formatMoney(c.amount) }}</text>
+            </view>
+            <view class="coupon-tx">
+              <view class="coupon-title-row">
+                <text class="coupon-name">{{ c.name }}</text>
+                <text class="coupon-type">{{ COUPON_TYPE[c.coupon_type] || c.coupon_type }}</text>
+              </view>
+              <text class="coupon-sub">
+                {{ toNum(c.min_order_amount) > 0 ? `满 ${formatMoney(c.min_order_amount)} 可用` : '无门槛' }}
+              </text>
+              <text class="coupon-sub">有效期至 {{ formatDate(c.valid_to) }}</text>
+            </view>
+          </view>
+        </view>
+        <empty-state v-else icon="🎟️" text="暂无可用优惠券" padding="28rpx 0" />
+      </view>
+
       <view v-if="frequentSkus.length" class="card">
         <view class="card-hd">
           <text class="card-title">常购商品</text>
@@ -117,6 +142,46 @@
 
       <view class="card">
         <view class="card-hd">
+          <view class="card-hd-left">
+            <text class="card-title">未配送订单</text>
+            <text v-if="undeliveredTotal > 0" class="count-badge">{{ undeliveredTotal }}</text>
+          </view>
+          <text class="card-extra" @tap="goOrderHistory">查看全部 ›</text>
+        </view>
+        <view v-if="undeliveredOrders.length">
+          <view
+            v-for="o in undeliveredOrders"
+            :key="o.id"
+            class="ord"
+            @tap="goOrderDetail(o.id)"
+          >
+            <view class="ord-tx">
+              <text class="ord-no">{{ o.order_no }} · {{ o.items.length }} 个商品</text>
+              <text class="ord-sub">{{ formatDate(o.created_at) }} · {{ DELIVERY_MODE[o.delivery_mode] || '' }}</text>
+            </view>
+            <view class="ord-amt">
+              <text class="ord-value">{{ formatMoney(o.total_amount) }}</text>
+              <view class="ord-badges">
+                <text class="ord-status" :class="`s-${ORDER_STATUS[o.status]?.type || 'grey'}`">
+                  {{ ORDER_STATUS[o.status]?.label || o.status }}
+                </text>
+                <text
+                  v-if="isActiveOrder(o)"
+                  class="ord-status"
+                  :class="`s-${PAY_STATUS[o.pay_status]?.type || 'grey'}`"
+                >
+                  {{ PAY_STATUS[o.pay_status]?.label }}
+                </text>
+              </view>
+              <text v-if="hasUnpaid(o)" class="ord-unpaid">未付 {{ formatMoney(o.unpaid_amount) }}</text>
+            </view>
+          </view>
+        </view>
+        <empty-state v-else icon="🚚" text="暂无未配送订单" padding="32rpx 0" />
+      </view>
+
+      <view class="card">
+        <view class="card-hd">
           <text class="card-title">最近订单</text>
           <text class="card-extra" @tap="goOrderHistory">查看全部 ›</text>
         </view>
@@ -133,9 +198,19 @@
             </view>
             <view class="ord-amt">
               <text class="ord-value">{{ formatMoney(o.total_amount) }}</text>
-              <text class="ord-status" :class="`s-${ORDER_STATUS[o.status]?.type || 'grey'}`">
-                {{ ORDER_STATUS[o.status]?.label || o.status }}
-              </text>
+              <view class="ord-badges">
+                <text class="ord-status" :class="`s-${ORDER_STATUS[o.status]?.type || 'grey'}`">
+                  {{ ORDER_STATUS[o.status]?.label || o.status }}
+                </text>
+                <text
+                  v-if="isActiveOrder(o)"
+                  class="ord-status"
+                  :class="`s-${PAY_STATUS[o.pay_status]?.type || 'grey'}`"
+                >
+                  {{ PAY_STATUS[o.pay_status]?.label }}
+                </text>
+              </view>
+              <text v-if="hasUnpaid(o)" class="ord-unpaid">未付 {{ formatMoney(o.unpaid_amount) }}</text>
             </view>
           </view>
         </view>
@@ -204,7 +279,8 @@
           <text class="k">手机号</text>
           <view class="v">
             <input v-if="editing" v-model="form.phone" class="v-input" type="number" maxlength="11" />
-            <text v-else>{{ customer.phone || '—' }}</text>
+            <text v-else-if="customer.phone" class="phone-link" @tap="callPhone">{{ customer.phone }}</text>
+            <text v-else>—</text>
           </view>
         </view>
         <view class="kv">
@@ -254,10 +330,10 @@ import { computed, reactive, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import EmptyState from '@/components/EmptyState.vue'
 import RegionPickerSheet from '@/components/RegionPickerSheet.vue'
-import { customerApi, customerLevelApi, customerTagApi, financeApi, orderApi, priceApi, skuApi } from '@/api'
-import type { CustomerLevel, CustomerTag } from '@/api'
+import { couponApi, customerApi, customerLevelApi, customerTagApi, financeApi, orderApi, priceApi, skuApi } from '@/api'
+import type { AvailableCoupon, CustomerLevel, CustomerTag } from '@/api'
 import { useCartStore } from '@/stores/cart'
-import { CUSTOMER_STATUS, DELIVERY_MODE, ORDER_STATUS } from '@/utils/dict'
+import { COUPON_TYPE, CUSTOMER_STATUS, DELIVERY_MODE, ORDER_STATUS, PAY_STATUS } from '@/utils/dict'
 import { formatDate, formatMoney, formatPhone, formatQty, toNum } from '@/utils/format'
 import type { Customer, CustomerAccount, FrequentSku, Order, PaymentRecordItem, RegionSelection } from '@/types'
 
@@ -267,8 +343,11 @@ const customerId = ref(0)
 const customer = ref<Customer | null>(null)
 const account = ref<CustomerAccount | null>(null)
 const recentOrders = ref<Order[]>([])
+const undeliveredOrders = ref<Order[]>([])
+const undeliveredTotal = ref(0)
 const recentPayments = ref<PaymentRecordItem[]>([])
 const frequentSkus = ref<FrequentSku[]>([])
+const coupons = ref<AvailableCoupon[]>([])
 
 const editing = ref(false)
 const regionPickerVisible = ref(false)
@@ -325,32 +404,40 @@ const usagePercent = computed(() => {
 const usageColor = computed(() =>
   usagePercent.value > 80 ? '#dc2626' : usagePercent.value > 60 ? '#ea580c' : '#16a34a',
 )
+const couponCount = computed(() => coupons.value.length)
+const couponTotalAmount = computed(() => coupons.value.reduce((sum, c) => sum + toNum(c.amount), 0))
 
 async function load() {
   if (!customerId.value) return
-  customer.value = await customerApi.get(customerId.value)
-  try {
-    account.value = await customerApi.account(customerId.value)
-  } catch {
-    /* 往来摘要不可用时隐藏额度卡 */
+  const id = customerId.value
+  const [detailRes, accountRes, couponRes, undeliveredRes, recentRes, paymentRes, freqRes] =
+    await Promise.allSettled([
+      customerApi.get(id),
+      customerApi.account(id),
+      couponApi.customerAvailable(id),
+      orderApi.list({ customer_id: id, status: 'pending_approval,pending,delivering', page: 1, page_size: 10 }),
+      orderApi.list({ customer_id: id, page: 1, page_size: 5 }),
+      financeApi.payments({ customer_id: id, page: 1, page_size: 5 }),
+      customerApi.frequentSkus(id, 6),
+    ])
+  if (detailRes.status === 'fulfilled') customer.value = detailRes.value
+  if (accountRes.status === 'fulfilled') account.value = accountRes.value
+  if (couponRes.status === 'fulfilled') coupons.value = couponRes.value.items || []
+  if (undeliveredRes.status === 'fulfilled') {
+    undeliveredOrders.value = undeliveredRes.value.items || []
+    undeliveredTotal.value = undeliveredRes.value.total || 0
   }
-  try {
-    const res = await orderApi.list({ customer_id: customerId.value, page: 1, page_size: 5 })
-    recentOrders.value = res.items
-  } catch {
-    /* ignore */
-  }
-  try {
-    const payRes = await financeApi.payments({ customer_id: customerId.value, page: 1, page_size: 5 })
-    recentPayments.value = payRes.items || []
-  } catch {
-    recentPayments.value = []
-  }
-  try {
-    frequentSkus.value = await customerApi.frequentSkus(customerId.value, 6)
-  } catch {
-    frequentSkus.value = []
-  }
+  if (recentRes.status === 'fulfilled') recentOrders.value = recentRes.value.items || []
+  if (paymentRes.status === 'fulfilled') recentPayments.value = paymentRes.value.items || []
+  if (freqRes.status === 'fulfilled') frequentSkus.value = freqRes.value
+}
+
+/** 已取消/已驳回的订单不再展示付款状态。 */
+function isActiveOrder(o: Order) {
+  return o.status !== 'cancelled' && o.status !== 'rejected'
+}
+function hasUnpaid(o: Order) {
+  return isActiveOrder(o) && o.pay_status !== 'paid' && toNum(o.unpaid_amount) > 0
 }
 
 function callPhone() {
@@ -579,6 +666,14 @@ onLoad((opts: any) => {
   font-weight: 600;
   color: #fff;
 }
+.phone-link {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 4rpx;
+}
+.hero-row .hv.strong.phone-link {
+  color: #fff;
+}
 .hero-row .sep {
   color: rgba(255, 255, 255, 0.3);
 }
@@ -641,6 +736,23 @@ onLoad((opts: any) => {
   font-size: 28rpx;
   font-weight: 600;
   color: #1f2937;
+}
+.card-hd-left {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+.count-badge {
+  min-width: 34rpx;
+  padding: 0 8rpx;
+  height: 34rpx;
+  line-height: 34rpx;
+  text-align: center;
+  border-radius: 17rpx;
+  background: #2563eb;
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
 }
 .card-extra {
   font-size: 22rpx;
@@ -727,6 +839,64 @@ onLoad((opts: any) => {
   margin-top: 8rpx;
   font-size: 19rpx;
   color: #9aa6b6;
+}
+
+/* 优惠券 */
+.coupon {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 18rpx 0;
+  border-top: 1rpx solid #f4f7fa;
+}
+.coupon:first-of-type {
+  border-top: 0;
+  padding-top: 4rpx;
+}
+.coupon-face {
+  flex: none;
+  width: 150rpx;
+  height: 96rpx;
+  border-radius: 14rpx;
+  background: linear-gradient(140deg, #fff4e5, #ffe7c7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.coupon-face-value {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #d97706;
+  font-variant-numeric: tabular-nums;
+}
+.coupon-tx {
+  flex: 1;
+  min-width: 0;
+}
+.coupon-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+}
+.coupon-name {
+  font-size: 25rpx;
+  font-weight: 600;
+  color: #1f2937;
+}
+.coupon-type {
+  flex: none;
+  font-size: 18rpx;
+  color: #d97706;
+  background: #fff7ed;
+  border: 1rpx solid #fde3bd;
+  border-radius: 6rpx;
+  padding: 2rpx 8rpx;
+}
+.coupon-sub {
+  display: block;
+  font-size: 20rpx;
+  color: #a3aebd;
+  margin-top: 4rpx;
 }
 
 /* 常购 */
@@ -833,6 +1003,22 @@ onLoad((opts: any) => {
   font-size: 19rpx;
   padding: 2rpx 10rpx;
   border-radius: 6rpx;
+  margin-top: 4rpx;
+}
+.ord-badges {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6rpx;
+}
+.ord-badges .ord-status {
+  margin-top: 0;
+}
+.ord-unpaid {
+  display: block;
+  font-size: 19rpx;
+  color: #ea580c;
+  font-weight: 600;
   margin-top: 4rpx;
 }
 .s-success {

@@ -29,3 +29,7 @@ screenshot_*
 
 # Utility scripts
 gen_icons.py
+
+# Playwright E2E
+playwright-report/
+test-results/

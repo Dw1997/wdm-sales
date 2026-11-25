@@ -16,102 +16,177 @@
         </view>
         <view class="track"><view class="fill" :style="{ width: progress + '%' }" /></view>
       </view>
-    </view>
-
-    <scroll-view scroll-x class="chips">
-      <view
-        v-for="f in filters"
-        :key="f.key"
-        class="chip"
-        :class="{ on: filter === f.key }"
-        @tap="filter = f.key"
-      >
-        <text>{{ f.label }}</text>
-        <text class="chip-n">{{ f.count }}</text>
+      <view v-if="!readonly && trip && (canPlan || canOperate)" class="tsum-ops">
+        <view v-if="canPlan" class="tsum-btn" @tap="goPlan">修改安排</view>
+        <view v-if="canOperate" class="tsum-btn go" @tap="goDeliver">去出车 ›</view>
       </view>
-    </scroll-view>
-
-    <view v-if="readonly" class="readonly-note">
-      本趟已出车，询单结果不能再改。补单直接进「录单」，送达在「送达」页处理。
     </view>
 
-    <scroll-view scroll-y class="list">
-      <view class="wrap">
-        <view v-for="g in visibleGroups" :key="g.key">
-          <view class="stop-hd">
-            <text class="no">{{ g.no }}</text>
-            <text class="stop-name">{{ g.name }}</text>
-            <text class="stop-meta">{{ g.all.length }} 家 · 已询 {{ g.called }}</text>
-          </view>
+    <!-- 视图切换：询单客户 / 本趟订单 -->
+    <view class="view-tabs">
+      <view class="vtab" :class="{ on: viewTab === 'calls' }" @tap="viewTab = 'calls'">
+        <text>询单客户</text>
+        <text class="vtab-n">{{ customers.length }}</text>
+      </view>
+      <view class="vtab" :class="{ on: viewTab === 'orders' }" @tap="viewTab = 'orders'">
+        <text>本趟订单</text>
+        <text class="vtab-n">{{ activeTripOrders.length }}</text>
+      </view>
+    </view>
 
-          <view
-            v-for="c in g.rows"
-            :key="c.customer_id"
-            class="ccard"
-            :class="{ ordered: c.call_result === 'ordered', muted: c.call_result === 'declined' }"
-          >
-            <view class="top">
-              <view class="nm">
-                <text class="cname">{{ c.customer_name }}</text>
-                <text class="csub">
-                  <template v-if="trip?.owner_name && c.sales_name">归属 {{ c.sales_name }} · </template>
-                  上次 {{ c.last_order_date ? cnDate(c.last_order_date) : '从未下单' }}
+    <!-- 询单客户视图 -->
+    <template v-if="viewTab === 'calls'">
+      <scroll-view scroll-x class="chips">
+        <view
+          v-for="f in filters"
+          :key="f.key"
+          class="chip"
+          :class="{ on: filter === f.key }"
+          @tap="filter = f.key"
+        >
+          <text>{{ f.label }}</text>
+          <text class="chip-n">{{ f.count }}</text>
+        </view>
+      </scroll-view>
+
+      <view v-if="readonly" class="readonly-note">
+        本趟已出车，询单结果不能再改。补单直接进「录单」，送达在「送达」页处理。
+      </view>
+
+      <scroll-view scroll-y class="list">
+        <view class="wrap">
+          <view v-for="g in visibleGroups" :key="g.key">
+            <view class="stop-hd">
+              <text class="no">{{ g.no }}</text>
+              <text class="stop-name">{{ g.name }}</text>
+              <text class="stop-meta">{{ g.all.length }} 家 · 已询 {{ g.called }}</text>
+            </view>
+
+            <view
+              v-for="c in g.rows"
+              :key="c.customer_id"
+              class="ccard"
+              :class="{ ordered: c.call_result === 'ordered', muted: c.call_result === 'declined' }"
+            >
+              <view class="top">
+                <view class="nm">
+                  <text class="cname">{{ c.customer_name }}</text>
+                  <text class="csub">
+                    <template v-if="trip?.owner_name && c.sales_name">归属 {{ c.sales_name }} · </template>
+                    上次 {{ c.last_order_date ? cnDate(c.last_order_date) : '从未下单' }}
+                  </text>
+                </view>
+                <text class="st" :class="`st-${c.call_result}`">{{ callLabel(c.call_result) }}</text>
+              </view>
+
+              <view class="facts">
+                <text>欠款</text>
+                <text class="debt" :class="{ owe: toNum(c.ar_balance) > 0 }">{{ formatMoney(c.ar_balance) }}</text>
+                <template v-if="g.key === 'tail'">
+                  <text class="dot">·</text>
+                  <text>{{ c.region_name }}</text>
+                </template>
+              </view>
+
+              <view v-if="c.trip_order_ids.length || miniOrders(c.customer_id) || c.other_trip_order" class="flags">
+                <text v-if="c.trip_order_ids.length" class="flag trip" @tap="openCustomerOrder(c)">
+                  本趟 {{ c.trip_order_ids.length }} 单 {{ formatMoney(orderAmountOf(c.customer_id)) }} ›
+                </text>
+                <text v-if="miniOrders(c.customer_id)" class="flag mini">小程序已下单</text>
+                <text v-if="c.other_trip_order" class="flag other">
+                  已有 {{ cnDate(c.other_trip_order.trip_date) }} 订单
                 </text>
               </view>
-              <text class="st" :class="`st-${c.call_result}`">{{ callLabel(c.call_result) }}</text>
-            </view>
 
-            <view class="facts">
-              <text>欠款</text>
-              <text class="debt" :class="{ owe: toNum(c.ar_balance) > 0 }">{{ formatMoney(c.ar_balance) }}</text>
-              <template v-if="g.key === 'tail'">
-                <text class="dot">·</text>
-                <text>{{ c.region_name }}</text>
-              </template>
-            </view>
-
-            <view v-if="c.trip_order_ids.length || miniOrders(c.customer_id) || c.other_trip_order" class="flags">
-              <text v-if="c.trip_order_ids.length" class="flag trip">
-                本趟 {{ c.trip_order_ids.length }} 单 {{ formatMoney(orderAmountOf(c.customer_id)) }}
-              </text>
-              <text v-if="miniOrders(c.customer_id)" class="flag mini">小程序已下单</text>
-              <text v-if="c.other_trip_order" class="flag other">
-                已有 {{ cnDate(c.other_trip_order.trip_date) }} 订单
-              </text>
-            </view>
-
-            <view class="ops">
-              <view class="tel" @tap="call(c)">📞</view>
-              <template v-if="c.call_result === 'ordered'">
-                <view class="rec light">已挂本趟 · 系统自动标记</view>
-              </template>
-              <template v-else-if="readonly">
-                <view class="rec disabled">已出车，清单只读</view>
-              </template>
-              <template v-else>
-                <view class="rec" @tap="record(c)">＋ 录单</view>
-                <view
-                  class="mini-btn"
-                  :class="{ on: c.call_result === 'declined' }"
-                  @tap="mark(c, 'declined')"
-                >本次不要</view>
-                <view
-                  class="mini-btn"
-                  :class="{ on: c.call_result === 'unreachable' }"
-                  @tap="mark(c, 'unreachable')"
-                >未接通</view>
-              </template>
+              <view class="ops">
+                <view class="tel" @tap="call(c)">📞</view>
+                <template v-if="c.call_result === 'ordered'">
+                  <view class="rec light" @tap="openCustomerOrder(c)">查看已下单 ›</view>
+                </template>
+                <template v-else-if="readonly">
+                  <view class="rec disabled">已出车，清单只读</view>
+                </template>
+                <template v-else>
+                  <view class="rec" @tap="record(c)">＋ 录单</view>
+                  <view
+                    class="mini-btn"
+                    :class="{ on: c.call_result === 'declined' }"
+                    @tap="mark(c, 'declined')"
+                  >本次不要</view>
+                  <view
+                    class="mini-btn"
+                    :class="{ on: c.call_result === 'unreachable' }"
+                    @tap="mark(c, 'unreachable')"
+                  >未接通</view>
+                </template>
+              </view>
             </view>
           </view>
-        </view>
 
-        <view v-if="!visibleGroups.length" class="empty-tip">这个筛选下没有客户</view>
+          <view v-if="!visibleGroups.length" class="empty-tip">这个筛选下没有客户</view>
 
-        <view class="tail">
-          {{ readonly ? '出车后清单只读' : `本趟共 ${customers.length} 家客户 · 打完电话逐个标记` }}
+          <view class="tail">
+            {{ readonly ? '出车后清单只读' : `本趟共 ${customers.length} 家客户 · 打完电话逐个标记` }}
+          </view>
         </view>
+      </scroll-view>
+    </template>
+
+    <!-- 本趟已下单列表视图 -->
+    <template v-else>
+      <view class="order-summary">
+        <text class="os-t">本趟共 <b>{{ activeTripOrders.length }}</b> 单</text>
+        <text class="os-amt">合计 {{ formatMoney(activeOrdersTotal) }}</text>
       </view>
-    </scroll-view>
+
+      <scroll-view scroll-y class="list">
+        <view class="wrap">
+          <view v-for="g in orderGroups" :key="g.key">
+            <view class="stop-hd">
+              <text class="no">{{ g.no }}</text>
+              <text class="stop-name">{{ g.name }}</text>
+              <text class="stop-meta">{{ g.orders.length }} 单 · {{ formatMoney(g.amount) }}</text>
+            </view>
+
+            <view
+              v-for="o in g.orders"
+              :key="o.order_id"
+              class="ocard"
+              @tap="goOrderDetail(o.order_id)"
+            >
+              <view class="top">
+                <view class="nm">
+                  <text class="cname">{{ o.customer_name }}</text>
+                  <text class="csub">
+                    {{ o.order_no }}
+                    <template v-if="o.sales_name"> · 销售 {{ o.sales_name }}</template>
+                  </text>
+                </view>
+                <view class="o-right">
+                  <text class="o-amt">{{ formatMoney(o.delivered_amount ?? o.total_amount) }}</text>
+                  <text class="ost" :class="`ost-${o.status}`">{{ tripOrderStatusLabel(o.status) }}</text>
+                </view>
+              </view>
+
+              <view v-if="o.auto_joined || o.auto_moved || o.dispatch_note" class="o-tags">
+                <text v-if="o.auto_joined" class="otag join">待排车自动加入</text>
+                <text v-if="o.auto_moved" class="otag move">更晚趟次自动挪入</text>
+                <text v-if="o.dispatch_note" class="o-note">{{ o.dispatch_note }}</text>
+              </view>
+
+              <view class="o-foot">
+                <text class="o-foot-l">{{ o.region_name }}</text>
+                <text class="o-foot-r">查看订单明细 ›</text>
+              </view>
+            </view>
+          </view>
+
+          <view v-if="!orderGroups.length" class="empty-tip">本趟还没有已下单订单</view>
+
+          <view class="tail">点订单查看商品明细，未出车前可在询单页继续录单</view>
+        </view>
+      </scroll-view>
+    </template>
   </view>
 </template>
 
@@ -119,11 +194,13 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { deliveryApi, orderApi } from '@/api'
+import { useAuthStore } from '@/stores/auth'
 import { CALL_RESULT } from '@/utils/dict'
 import { cnDate, formatMoney, toNum } from '@/utils/format'
-import type { CallListCustomer, CallResult, Order, RouteTrip } from '@/types'
+import type { CallListCustomer, CallResult, Order, RouteTrip, RouteTripOrder, TripOrderStatus } from '@/types'
 
 type FilterKey = 'all' | 'none' | 'ordered' | 'declined' | 'unreachable'
+type ViewTab = 'calls' | 'orders'
 
 interface StopGroup {
   key: string
@@ -134,17 +211,62 @@ interface StopGroup {
   called: number
 }
 
+interface OrderStopGroup {
+  key: string
+  no: string
+  name: string
+  orders: RouteTripOrder[]
+  amount: number
+}
+
+const auth = useAuthStore()
+
 const tripId = ref(0)
 const trip = ref<RouteTrip | null>(null)
 const customers = ref<CallListCustomer[]>([])
 const tripOrders = ref<Order[]>([])
+const routeTripOrders = ref<RouteTripOrder[]>([])
+const viewTab = ref<ViewTab>('calls')
 const filter = ref<FilterKey>('all')
 
 const readonly = computed(() => !!trip.value && trip.value.status !== 'planned')
+const canPlan = computed(
+  () => auth.isAdmin && (auth.can('delivery.route.manage') || !auth.permissions.length),
+)
+const canOperate = computed(() => {
+  const me = auth.user
+  return auth.isAdmin || (!!me && trip.value?.owner_id === me.id)
+})
 const calledCount = computed(() => customers.value.filter((c) => c.call_result !== 'none').length)
 const progress = computed(() => {
   if (!customers.value.length) return 0
   return Math.max(4, Math.round((calledCount.value / customers.value.length) * 100))
+})
+
+const activeTripOrders = computed(() =>
+  routeTripOrders.value.filter((o) => o.status !== 'cancelled'),
+)
+
+const activeOrdersTotal = computed(() =>
+  activeTripOrders.value.reduce((sum, o) => sum + toNum(o.delivered_amount ?? o.total_amount), 0),
+)
+
+const orderGroups = computed<OrderStopGroup[]>(() => {
+  const map = new Map<number, RouteTripOrder[]>()
+  activeTripOrders.value.forEach((o) => {
+    const list = map.get(o.stop_seq) || []
+    list.push(o)
+    map.set(o.stop_seq, list)
+  })
+  return [...map.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([seq, list]) => ({
+      key: `o-${seq}`,
+      no: seq > 0 ? String(seq) : '·',
+      name: list[0]?.region_name || '未分组',
+      orders: list,
+      amount: list.reduce((s, x) => s + toNum(x.delivered_amount ?? x.total_amount), 0),
+    }))
 })
 
 const filters = computed(() => {
@@ -205,6 +327,10 @@ function callLabel(r: CallResult): string {
   return CALL_RESULT[r]?.label || r
 }
 
+function tripOrderStatusLabel(s: TripOrderStatus): string {
+  return { pending: '待配送', delivering: '配送中', delivered: '已送达', cancelled: '已取消' }[s] || s
+}
+
 /** 本趟这个客户的订单（含小程序来源，用于金额与标记）。 */
 function customerOrders(customerId: number): Order[] {
   return tripOrders.value.filter((o) => o.customer_id === customerId && o.status !== 'cancelled')
@@ -221,16 +347,18 @@ function miniOrders(customerId: number): boolean {
 async function load() {
   if (!tripId.value) return
   try {
-    const [t, list, orders] = await Promise.all([
+    const [t, list, orders, rtOrders] = await Promise.all([
       deliveryApi.getTrip(tripId.value),
       deliveryApi.callList(tripId.value),
       orderApi
         .list({ route_trip_id: tripId.value, page_size: 100 })
         .catch(() => ({ items: [] as Order[] })),
+      deliveryApi.tripOrders(tripId.value).catch(() => [] as RouteTripOrder[]),
     ])
     trip.value = t
     customers.value = list
     tripOrders.value = orders.items
+    routeTripOrders.value = rtOrders
     uni.setNavigationBarTitle({ title: t.name ? `${t.name} · 询单` : '询单清单' })
   } catch {
     /* 保留上一次数据 */
@@ -242,7 +370,30 @@ onLoad((opts) => {
   load()
 })
 
-onShow(load)
+onShow(() => {
+  auth.restore()
+  load()
+})
+
+function goPlan() {
+  uni.navigateTo({ url: `/pages/trip/plan?id=${tripId.value}` })
+}
+
+function goDeliver() {
+  uni.navigateTo({ url: `/pages/trip/deliver?id=${tripId.value}` })
+}
+
+function goOrderDetail(orderId: number) {
+  uni.navigateTo({ url: `/pages/order/detail?id=${orderId}` })
+}
+
+function openCustomerOrder(c: CallListCustomer) {
+  if (c.trip_order_ids.length === 1) {
+    goOrderDetail(c.trip_order_ids[0])
+    return
+  }
+  viewTab.value = 'orders'
+}
 
 function call(c: CallListCustomer) {
   if (!c.customer_phone) {
@@ -303,8 +454,33 @@ async function mark(c: CallListCustomer, result: Exclude<CallResult, 'none' | 'o
 .track { height: 8rpx; border-radius: 4rpx; background: rgba(255, 255, 255, 0.18); overflow: hidden; }
 .fill { height: 100%; border-radius: 4rpx; background: linear-gradient(90deg, #93c5fd, #e0f2fe); }
 
+/* 管理员/司机的轻量操作 */
+.tsum-ops {
+  display: flex; align-items: center; gap: 14rpx;
+  margin-top: 18rpx; padding-top: 16rpx; border-top: 1rpx solid rgba(255, 255, 255, 0.14);
+}
+.tsum-btn {
+  flex: none; padding: 10rpx 24rpx; border-radius: 999rpx; font-size: 22rpx;
+  background: rgba(255, 255, 255, 0.16); color: #e2e8f0;
+}
+.tsum-btn:active { opacity: 0.8; }
+.tsum-btn.go { margin-left: auto; background: rgba(96, 165, 250, 0.28); color: #dbeafe; font-weight: 600; }
+
+/* 视图切换 */
+.view-tabs {
+  flex: none; display: flex; gap: 10rpx; margin: 16rpx 16rpx 0; padding: 6rpx;
+  border-radius: 16rpx; background: #e8edf5;
+}
+.vtab {
+  flex: 1; height: 64rpx; border-radius: 12rpx;
+  display: flex; align-items: center; justify-content: center; gap: 8rpx;
+  font-size: 25rpx; font-weight: 500; color: #64738a;
+}
+.vtab.on { background: #fff; color: $uni-color-primary; font-weight: 600; box-shadow: 0 2rpx 8rpx rgba(22, 35, 58, 0.08); }
+.vtab-n { font-size: 20rpx; opacity: 0.75; }
+
 /* 筛选 */
-.chips { white-space: nowrap; padding: 16rpx 16rpx 6rpx; flex: none; }
+.chips { white-space: nowrap; padding: 14rpx 16rpx 6rpx; flex: none; }
 .chip {
   display: inline-flex; align-items: center; gap: 6rpx; margin-right: 12rpx;
   padding: 10rpx 20rpx; border-radius: 30rpx; background: #fff; color: #64738a; font-size: 23rpx;
@@ -316,6 +492,14 @@ async function mark(c: CallListCustomer, result: Exclude<CallResult, 'none' | 'o
   margin: 8rpx 16rpx 0; padding: 16rpx 20rpx; border-radius: 14rpx;
   background: #fff7e8; color: #a96a10; font-size: 21rpx; line-height: 1.5;
 }
+
+.order-summary {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  margin: 14rpx 16rpx 4rpx; padding: 14rpx 20rpx; border-radius: 14rpx; background: #fff;
+}
+.os-t { font-size: 23rpx; color: #64738a; }
+.os-t b { color: #1c2534; font-weight: 600; }
+.os-amt { font-size: 26rpx; font-weight: 700; color: $uni-color-primary; }
 
 .list { flex: 1; height: 0; }
 .wrap { padding: 6rpx 16rpx 40rpx; }
@@ -363,13 +547,37 @@ async function mark(c: CallListCustomer, result: Exclude<CallResult, 'none' | 'o
   font-size: 25rpx; font-weight: 600; display: flex; align-items: center; justify-content: center;
   box-shadow: 0 6rpx 14rpx rgba(37, 99, 235, 0.2);
 }
-.rec.light { background: #e6f7ee; color: #1f8459; box-shadow: none; font-weight: 500; font-size: 22rpx; }
+.rec.light { background: #e6f7ee; color: #1f8459; box-shadow: none; font-weight: 600; font-size: 23rpx; }
 .rec.disabled { background: #f4f6f9; color: #8b98aa; box-shadow: none; font-weight: 500; font-size: 22rpx; }
 .mini-btn {
   flex: none; height: 66rpx; padding: 0 16rpx; border-radius: 12rpx; background: #f4f6f9;
   color: #64738a; font-size: 21rpx; display: flex; align-items: center;
 }
 .mini-btn.on { background: #fff2dd; color: #a96a10; font-weight: 600; }
+
+/* 本趟订单卡 */
+.ocard { background: #fff; border-radius: 20rpx; padding: 22rpx 22rpx 0; margin-bottom: 14rpx; }
+.ocard:active { background: #fafbfd; }
+.o-right { flex: none; text-align: right; }
+.o-amt { display: block; font-size: 27rpx; font-weight: 700; color: #1c2534; }
+.ost { display: inline-block; margin-top: 4rpx; font-size: 19rpx; padding: 2rpx 12rpx; border-radius: 14rpx; }
+.ost-pending { background: #e9f2ff; color: #2570b3; }
+.ost-delivering { background: #fff2dd; color: #a96a10; }
+.ost-delivered { background: #e6f7ee; color: #1f8459; }
+.ost-cancelled { background: #f0f2f5; color: #77849a; }
+
+.o-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 8rpx; margin-top: 12rpx; }
+.otag { font-size: 19rpx; padding: 3rpx 10rpx; border-radius: 8rpx; }
+.otag.join { background: #eef4ff; color: #2570b3; }
+.otag.move { background: #fff2dd; color: #a96a10; }
+.o-note { font-size: 19rpx; color: #8894a5; }
+
+.o-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 14rpx; padding: 14rpx 0 16rpx; border-top: 1rpx solid #eef1f5;
+}
+.o-foot-l { font-size: 21rpx; color: #8894a5; }
+.o-foot-r { font-size: 22rpx; font-weight: 600; color: $uni-color-primary; }
 
 .empty-tip { text-align: center; font-size: 23rpx; color: #8894a5; padding: 60rpx 0; }
 .tail { text-align: center; font-size: 20rpx; color: #a8b3c2; padding: 14rpx 0 4rpx; }

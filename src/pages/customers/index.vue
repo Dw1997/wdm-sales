@@ -1,122 +1,179 @@
 <template>
-  <page-meta :page-style="createVisible || regionPickerVisible ? 'overflow: hidden;' : ''" />
+  <page-meta :page-style="createVisible || regionPickerVisible || activeDropdown ? 'overflow: hidden;' : ''" />
   <view class="customers-page">
     <view class="tools">
-      <view class="search-row">
-        <view class="search-box">
-          <text class="search-icon">🔍</text>
-          <input
-            v-model="keyword"
-            class="search-input"
-            placeholder="搜索客户名称 / 手机号"
-            confirm-type="search"
-            @confirm="reload"
-          />
-          <text v-if="keyword" class="clear" @tap="clearKeyword">×</text>
+      <view class="search-box">
+        <view class="search-icon" />
+        <input
+          v-model="keyword"
+          class="search-input"
+          placeholder="搜索客户名称 / 手机号"
+          confirm-type="search"
+          @confirm="reload"
+        />
+        <text v-if="keyword" class="clear" @tap="clearKeyword">×</text>
+      </view>
+
+      <!-- 单行多维筛选条 -->
+      <view class="filter-bar">
+        <view
+          class="f-item"
+          :class="{ hl: !!routeTemplateId || !!tripDay || activeDropdown === 'route' }"
+          @tap="toggleDropdown('route')"
+        >
+          <text class="f-text">{{ routeLabel }}</text>
+          <view class="caret" :class="{ up: activeDropdown === 'route' }" />
         </view>
-        <view class="filter-btn" :class="{ on: panelOpen || hasFilter }" @tap="panelOpen = !panelOpen">
-          筛选<text v-if="hasFilter" class="dot" />
+        <view
+          v-if="isAdmin"
+          class="f-item"
+          :class="{ hl: !!salesId || activeDropdown === 'sales' }"
+          @tap="toggleDropdown('sales')"
+        >
+          <text class="f-text">{{ salesLabel }}</text>
+          <view class="caret" :class="{ up: activeDropdown === 'sales' }" />
+        </view>
+        <view
+          class="f-item"
+          :class="{ hl: !!status || activeDropdown === 'status' }"
+          @tap="toggleDropdown('status')"
+        >
+          <text class="f-text">{{ statusText }}</text>
+          <view class="caret" :class="{ up: activeDropdown === 'status' }" />
+        </view>
+        <view
+          class="f-item"
+          :class="{ hl: orderBy !== 'id' || activeDropdown === 'sort' }"
+          @tap="toggleDropdown('sort')"
+        >
+          <text class="f-text">{{ sortLabel }}</text>
+          <view class="caret" :class="{ up: activeDropdown === 'sort' }" />
         </view>
       </view>
 
-      <!-- 常用路线快捷筛选（询单打电话） -->
-      <scroll-view v-if="routeTemplates.length" scroll-x class="route-bar" :show-scrollbar="false">
-        <view class="route-line">
-          <text class="rchip" :class="{ on: !routeTemplateId }" @tap="setRoute(0)">全部路线</text>
-          <text
-            v-for="r in routeTemplates"
-            :key="r.id"
-            class="rchip"
-            :class="{ on: routeTemplateId === r.id }"
-            @tap="setRoute(r.id)"
-          >{{ r.name }}</text>
-        </view>
-      </scroll-view>
-
-      <view v-if="panelOpen" class="panel">
-        <view class="prow">
-          <text class="lb">状态</text>
-          <view class="chips">
-            <text
-              v-for="opt in statusOpts"
+      <view v-if="activeDropdown" class="dropdown-panel">
+        <scroll-view scroll-y class="dropdown-scroll" :show-scrollbar="false">
+          <template v-if="activeDropdown === 'route'">
+            <view class="dropdown-item" :class="{ on: !routeTemplateId && !tripDay }" @tap="pickRoute(0)">
+              <text class="d-text">全部路线</text>
+              <text v-if="!routeTemplateId && !tripDay" class="d-check">✓</text>
+            </view>
+            <view class="dropdown-sec">按出车日期</view>
+            <view
+              v-for="opt in tripDayOpts"
               :key="opt.value"
-              class="chip"
-              :class="{ on: status === opt.value }"
-              @tap="setStatus(opt.value)"
-            >{{ opt.label }}</text>
-          </view>
-        </view>
-        <view v-if="isAdmin" class="prow">
-          <text class="lb">归属</text>
-          <view class="chips">
-            <text class="chip" :class="{ on: !salesId }" @tap="setSales(0)">全部</text>
-            <text
+              class="dropdown-item"
+              :class="{ on: tripDay === opt.value }"
+              @tap="pickTripDay(opt.value)"
+            >
+              <view class="d-text-row">
+                <text class="d-text">{{ opt.label }}</text>
+                <text class="d-sub">{{ opt.dateText }}</text>
+              </view>
+              <text v-if="tripDay === opt.value" class="d-check">✓</text>
+            </view>
+            <view v-if="routeTemplates.length" class="dropdown-sec">常用路线</view>
+            <view
+              v-for="r in routeTemplates"
+              :key="r.id"
+              class="dropdown-item"
+              :class="{ on: routeTemplateId === r.id }"
+              @tap="pickRoute(r.id)"
+            >
+              <text class="d-text">{{ r.name }}</text>
+              <text v-if="routeTemplateId === r.id" class="d-check">✓</text>
+            </view>
+          </template>
+
+          <template v-else-if="activeDropdown === 'sales'">
+            <view class="dropdown-item" :class="{ on: !salesId }" @tap="pickSales(0)">
+              <text class="d-text">全部归属</text>
+              <text v-if="!salesId" class="d-check">✓</text>
+            </view>
+            <view
               v-for="s in salesOptions"
               :key="s.id"
-              class="chip"
+              class="dropdown-item"
               :class="{ on: salesId === s.id }"
-              @tap="setSales(s.id)"
-            >{{ s.is_admin ? '管理员·' : '' }}{{ s.name }}</text>
-          </view>
-        </view>
-        <view class="prow">
-          <text class="lb">排序</text>
-          <view class="chips">
-            <text
+              @tap="pickSales(s.id)"
+            >
+              <text class="d-text">{{ s.is_admin ? `管·${s.name}` : s.name }}</text>
+              <text v-if="salesId === s.id" class="d-check">✓</text>
+            </view>
+          </template>
+
+          <template v-else-if="activeDropdown === 'status'">
+            <view
+              v-for="opt in statusOpts"
+              :key="opt.value"
+              class="dropdown-item"
+              :class="{ on: status === opt.value }"
+              @tap="pickStatus(opt.value)"
+            >
+              <text class="d-text">{{ opt.label }}</text>
+              <text v-if="status === opt.value" class="d-check">✓</text>
+            </view>
+          </template>
+
+          <template v-else>
+            <view
               v-for="opt in sortOpts"
               :key="opt.value"
-              class="chip"
+              class="dropdown-item"
               :class="{ on: orderBy === opt.value }"
-              @tap="setSort(opt.value)"
-            >{{ opt.label }}</text>
-          </view>
-        </view>
+              @tap="pickSort(opt.value)"
+            >
+              <text class="d-text">{{ opt.label }}</text>
+              <text v-if="orderBy === opt.value" class="d-check">✓</text>
+            </view>
+          </template>
+        </scroll-view>
       </view>
     </view>
 
+    <view v-if="activeDropdown" class="dropdown-mask" @tap="closeDropdown" @touchmove.stop.prevent />
+
     <view class="sum">
-      <text>已加载 <text class="sum-num">{{ list.length }}</text> 位客户</text>
-      <text v-if="list.length">欠款合计 <text class="sum-owe">{{ formatMoney(totalDebt) }}</text></text>
+      <text>已加载 {{ list.length }} 位<text v-if="list.length"> · 欠款 <text class="sum-owe">{{ formatMoney(totalDebt) }}</text></text></text>
+      <text v-if="hasFilter || keyword" class="sum-reset" @tap="resetFilter">重置筛选</text>
     </view>
 
     <view class="list">
-      <view v-if="list.length">
+      <view v-if="list.length" class="cust-list">
         <view
           v-for="c in list"
           :key="c.id"
-          class="cust"
+          class="cust-row"
           :class="{ pending: c.status === 'pending' }"
           @tap="goDetail(c.id)"
         >
-          <view class="c-hd">
-            <view class="c-name">
+          <view class="row-top">
+            <view class="row-title">
               <text class="name">{{ c.name }}</text>
-              <text v-if="c.level_nickname" class="tag tag-level">{{ c.level_nickname }}</text>
-              <text class="tag" :class="`tag-${statusType(c.status)}`">{{ statusLabel(c.status) }}</text>
+              <text v-if="c.level_nickname" class="badge badge-level">{{ c.level_nickname }}</text>
+              <text
+                v-if="c.status !== 'active'"
+                class="badge"
+                :class="`badge-${statusType(c.status)}`"
+              >{{ statusLabel(c.status) }}</text>
             </view>
-            <view class="c-debt">
-              <text class="debt" :class="owe(c) > 0 ? 'owe' : 'zero'">
-                {{ owe(c) > 0 ? formatMoney(c.ar_balance) : '无欠款' }}
-              </text>
-              <text v-if="owe(c) > 0" class="debt-label">当前欠款</text>
+            <view class="row-debt">
+              <text v-if="owe(c) > 0" class="debt-amt">{{ formatMoney(c.ar_balance) }}</text>
+              <text v-else class="debt-none">无欠款</text>
             </view>
           </view>
 
-          <view class="c-meta">
-            <text class="town">{{ c.town || c.district || c.city || c.province || '未设送货地点' }}</text>
-            <text class="sep">·</text>
-            <text>{{ deliveryLabel(c.default_delivery_mode) }}</text>
-            <text v-if="c.contact_name" class="sep">·</text>
-            <text v-if="c.contact_name">{{ c.contact_name }}</text>
-          </view>
-
-          <view class="c-foot">
-            <text class="who">
-              {{ c.sales_name ? `归属 ${c.sales_name}` : '无归属销售' }}{{ c.referrer_customer_name ? ` · 介绍人 ${c.referrer_customer_name}` : '' }}
-            </text>
-            <view class="acts">
-              <view v-if="isAdmin && c.status === 'pending'" class="mini ok" @tap.stop="goAudit()">审核</view>
-              <view v-if="c.phone" class="mini call" @tap.stop="callPhone(c.phone)">📞 电话</view>
+          <view class="row-sub">
+            <view class="row-meta">
+              <text class="town">{{ c.town || c.district || c.city || c.province || '未设地点' }}</text>
+              <text> · {{ deliveryLabel(c.default_delivery_mode) }}</text>
+              <text v-if="c.contact_name"> · {{ c.contact_name }}</text>
+              <text v-if="c.sales_name"> · {{ c.sales_name }}</text>
+              <text v-if="c.referrer_customer_name"> · 荐:{{ c.referrer_customer_name }}</text>
+            </view>
+            <view class="row-acts">
+              <view v-if="isAdmin && c.status === 'pending'" class="a-btn audit" @tap.stop="goAudit()">审核</view>
+              <view v-if="c.phone" class="a-btn call" @tap.stop="callPhone(c.phone)">拨号</view>
             </view>
           </view>
         </view>
@@ -318,12 +375,17 @@ import type {
 const auth = useAuthStore()
 const isAdmin = computed(() => auth.isAdmin)
 
+type TripDayKey = '' | 'today' | 'tomorrow' | 'after_tomorrow'
+
 const keyword = ref('')
 const status = ref('')
 const salesId = ref(0)
 const routeTemplateId = ref(0)
+const tripDay = ref<TripDayKey>('')
 const orderBy = ref('id')
-const panelOpen = ref(false)
+
+type DropdownKey = '' | 'route' | 'sales' | 'status' | 'sort'
+const activeDropdown = ref<DropdownKey>('')
 
 const list = ref<Customer[]>([])
 const salesOptions = ref<SalesOption[]>([])
@@ -339,7 +401,7 @@ const page = ref(1)
 const PAGE_SIZE = 20
 
 const statusOpts = [
-  { label: '全部', value: '' },
+  { label: '全部状态', value: '' },
   { label: '待审核', value: 'pending' },
   { label: '正常', value: 'active' },
   { label: '禁止下单', value: 'order_disabled' },
@@ -347,7 +409,7 @@ const statusOpts = [
 ]
 
 const sortOpts = [
-  { label: '默认', value: 'id' },
+  { label: '默认排序', value: 'id' },
   { label: '欠款最多', value: 'debt' },
   { label: '欠款最少', value: 'debt_asc' },
   { label: '最近下单', value: 'last_order' },
@@ -370,10 +432,53 @@ const activeLevels = computed(() =>
   levels.value.filter((l) => l.is_active && l.level_id !== 'walk_in' && l.level_id !== 'default_retail'),
 )
 
+function offsetDate(days: number) {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d
+}
+function formatYmd(d: Date) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+function formatMd(d: Date) {
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${m}-${day}`
+}
+
+const tripDayOpts = computed(() => [
+  { value: 'today' as const, label: '今天出车', offset: 0, dateText: formatMd(offsetDate(0)) },
+  { value: 'tomorrow' as const, label: '明天出车', offset: 1, dateText: formatMd(offsetDate(1)) },
+  { value: 'after_tomorrow' as const, label: '后天出车', offset: 2, dateText: formatMd(offsetDate(2)) },
+])
+
 const hasFilter = computed(
-  () => !!status.value || !!salesId.value || !!routeTemplateId.value || orderBy.value !== 'id',
+  () => !!status.value || !!salesId.value || !!routeTemplateId.value || !!tripDay.value || orderBy.value !== 'id',
 )
 const totalDebt = computed(() => list.value.reduce((sum, c) => sum + owe(c), 0))
+
+const routeLabel = computed(() => {
+  if (tripDay.value) {
+    return tripDayOpts.value.find((o) => o.value === tripDay.value)?.label || '全部路线'
+  }
+  if (!routeTemplateId.value) return '全部路线'
+  return routeTemplates.value.find((r) => r.id === routeTemplateId.value)?.name || '全部路线'
+})
+const salesLabel = computed(() => {
+  if (!salesId.value) return '全部归属'
+  const s = salesOptions.value.find((it) => it.id === salesId.value)
+  if (!s) return '全部归属'
+  return s.is_admin ? `管·${s.name}` : s.name
+})
+const statusText = computed(() =>
+  status.value ? statusLabel(status.value as CustomerStatus) : '全部状态',
+)
+const sortLabel = computed(
+  () => sortOpts.find((o) => o.value === orderBy.value)?.label || '默认排序',
+)
 
 function owe(c: Customer) {
   return toNum(c.ar_balance)
@@ -390,6 +495,7 @@ function deliveryLabel(v?: string | null) {
 }
 
 function params(p: number) {
+  const tripOpt = tripDay.value ? tripDayOpts.value.find((o) => o.value === tripDay.value) : undefined
   return {
     page: p,
     page_size: PAGE_SIZE,
@@ -397,6 +503,7 @@ function params(p: number) {
     status: status.value || undefined,
     sales_id: salesId.value || undefined,
     route_template_id: routeTemplateId.value || undefined,
+    trip_date: tripOpt ? formatYmd(offsetDate(tripOpt.offset)) : undefined,
     order_by: orderBy.value,
   }
 }
@@ -428,20 +535,37 @@ async function loadMore() {
   }
 }
 
-function setRoute(id: number) {
-  routeTemplateId.value = routeTemplateId.value === id ? 0 : id
+function toggleDropdown(key: Exclude<DropdownKey, ''>) {
+  activeDropdown.value = activeDropdown.value === key ? '' : key
+}
+function closeDropdown() {
+  activeDropdown.value = ''
+}
+function pickRoute(id: number) {
+  routeTemplateId.value = id
+  tripDay.value = ''
+  closeDropdown()
   reload()
 }
-function setStatus(v: string) {
-  status.value = status.value === v ? '' : v
+function pickTripDay(day: Exclude<TripDayKey, ''>) {
+  tripDay.value = day
+  routeTemplateId.value = 0
+  closeDropdown()
   reload()
 }
-function setSales(id: number) {
-  salesId.value = salesId.value === id ? 0 : id
+function pickSales(id: number) {
+  salesId.value = id
+  closeDropdown()
   reload()
 }
-function setSort(v: string) {
+function pickStatus(v: string) {
+  status.value = v
+  closeDropdown()
+  reload()
+}
+function pickSort(v: string) {
   orderBy.value = v
+  closeDropdown()
   reload()
 }
 function clearKeyword() {
@@ -453,7 +577,9 @@ function resetFilter() {
   status.value = ''
   salesId.value = 0
   routeTemplateId.value = 0
+  tripDay.value = ''
   orderBy.value = 'id'
+  closeDropdown()
   reload()
 }
 
@@ -567,8 +693,8 @@ function setBodyScrollLock(locked: boolean) {
   // #endif
 }
 
-watch([createVisible, regionPickerVisible], ([a, b]) => {
-  setBodyScrollLock(a || b)
+watch([createVisible, regionPickerVisible, activeDropdown], ([a, b, d]) => {
+  setBodyScrollLock(a || b || !!d)
 })
 
 async function ensureCreateOptions() {
@@ -605,6 +731,7 @@ async function ensureCreateOptions() {
 }
 
 function openCreate() {
+  activeDropdown.value = ''
   createVisible.value = true
   ensureCreateOptions()
 }
@@ -711,6 +838,7 @@ onShow(async () => {
 onHide(() => {
   regionPickerVisible.value = false
   createVisible.value = false
+  activeDropdown.value = ''
   setBodyScrollLock(false)
 })
 onUnmounted(() => {
@@ -733,89 +861,190 @@ onReachBottom(() => {
   background: #f5f7fa;
 }
 
-/* 搜索与筛选 */
+/* 紧凑搜索栏 */
 .tools {
   position: sticky;
   top: 0;
   z-index: 20;
   background: #fff;
-  padding: calc(var(--status-bar-height, 0px) + 16rpx) 20rpx 12rpx;
-}
-.search-row {
-  display: flex;
-  align-items: center;
-  gap: 16rpx;
+  padding: calc(var(--status-bar-height, 0px) + 12rpx) 20rpx 10rpx;
 }
 .search-box {
-  flex: 1;
   display: flex;
   align-items: center;
-  gap: 10rpx;
-  height: 72rpx;
+  gap: 12rpx;
+  height: 64rpx;
   padding: 0 24rpx;
   background: #f3f5f9;
-  border-radius: 36rpx;
+  border-radius: 32rpx;
 }
 .search-icon {
-  font-size: 24rpx;
-  opacity: 0.5;
+  position: relative;
+  flex: none;
+  width: 24rpx;
+  height: 24rpx;
+  border: 3rpx solid #9aa6b6;
+  border-radius: 50%;
+}
+.search-icon::after {
+  content: '';
+  position: absolute;
+  right: -7rpx;
+  bottom: -5rpx;
+  width: 11rpx;
+  height: 3rpx;
+  background: #9aa6b6;
+  border-radius: 2rpx;
+  transform: rotate(45deg);
 }
 .search-input {
   flex: 1;
-  font-size: 26rpx;
+  min-width: 0;
+  height: 100%;
+  font-size: 25rpx;
   color: #1f2937;
 }
 .clear {
-  font-size: 32rpx;
+  flex: none;
+  font-size: 30rpx;
+  line-height: 1;
   color: #9ca3af;
   padding: 0 4rpx;
 }
-.filter-btn {
-  position: relative;
-  flex: none;
-  height: 64rpx;
-  padding: 0 22rpx;
+
+/* 单行多维筛选条 */
+.filter-bar {
   display: flex;
   align-items: center;
-  border: 2rpx solid #e6ebf2;
-  border-radius: 32rpx;
+  height: 68rpx;
+  margin: 10rpx -20rpx -10rpx;
+  background: #fff;
+  border-bottom: 1rpx solid #eef1f6;
+}
+.f-item {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 8rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6rpx;
+}
+.f-text {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  padding: 0 2rpx;
   font-size: 24rpx;
   color: #4b5563;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.filter-btn.on {
-  border-color: rgba(37, 99, 235, 0.35);
-  color: #2563eb;
-  background: #f2f7ff;
-}
-.filter-btn .dot {
-  width: 10rpx;
-  height: 10rpx;
-  border-radius: 50%;
-  background: #ef4444;
-  margin-left: 6rpx;
-}
-.panel {
-  margin-top: 14rpx;
-  padding: 16rpx 18rpx;
-  background: #fafbfd;
-  border-radius: 16rpx;
-}
-.prow {
-  display: flex;
-  align-items: flex-start;
-  gap: 14rpx;
-  padding: 8rpx 0;
-}
-.prow + .prow {
-  border-top: 1rpx dashed #eef1f6;
-}
-.lb {
+.caret {
   flex: none;
-  width: 72rpx;
-  font-size: 22rpx;
-  color: #8d99aa;
-  padding-top: 6rpx;
+  width: 0;
+  height: 0;
+  border-left: 8rpx solid transparent;
+  border-right: 8rpx solid transparent;
+  border-top: 9rpx solid #9aa6b6;
+  transition: transform 0.18s ease;
 }
+.caret.up {
+  transform: rotate(180deg);
+}
+.f-item.hl .f-text {
+  color: #2563eb;
+  font-weight: 600;
+}
+.f-item.hl .caret {
+  border-top-color: #2563eb;
+}
+
+/* 下拉浮层 */
+.dropdown-mask {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 19;
+  background: rgba(15, 23, 42, 0.28);
+}
+.dropdown-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  z-index: 30;
+  background: #fff;
+  border-radius: 0 0 20rpx 20rpx;
+  box-shadow: 0 12rpx 32rpx rgba(15, 23, 42, 0.1);
+  overflow: hidden;
+}
+.dropdown-scroll {
+  max-height: 52vh;
+}
+.dropdown-sec {
+  padding: 14rpx 32rpx 8rpx;
+  font-size: 21rpx;
+  color: #9aa6b6;
+  background: #f8fafc;
+  border-bottom: 1rpx solid #f3f5f8;
+}
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 84rpx;
+  padding: 0 32rpx;
+  border-bottom: 1rpx solid #f3f5f8;
+  box-sizing: border-box;
+}
+.d-text-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+.d-text-row .d-text {
+  flex: none;
+}
+.d-sub {
+  flex: none;
+  font-size: 22rpx;
+  color: #9aa6b6;
+}
+.dropdown-item:last-child {
+  border-bottom: none;
+}
+.dropdown-item.on {
+  background: #f5f9ff;
+}
+.d-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 26rpx;
+  color: #374151;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dropdown-item.on .d-text {
+  color: #2563eb;
+  font-weight: 600;
+}
+.d-check {
+  flex: none;
+  margin-left: 16rpx;
+  font-size: 26rpx;
+  color: #2563eb;
+}
+
+/* 新建客户弹窗内的胶囊选择 */
 .chips {
   flex: 1;
   display: flex;
@@ -835,155 +1064,158 @@ onReachBottom(() => {
   font-weight: 600;
 }
 
-/* 汇总 */
+/* 紧凑汇总条 */
 .sum {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  padding: 12rpx 24rpx;
+  gap: 16rpx;
+  padding: 10rpx 24rpx;
+  background: #f5f7fa;
   font-size: 22rpx;
-  color: #8d99aa;
-}
-.sum-num {
-  color: #1f2937;
-  font-weight: 600;
+  color: #6b7280;
 }
 .sum-owe {
   color: #c9343d;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sum-reset {
+  flex: none;
+  color: #2563eb;
 }
 
-/* 客户卡 */
+/* 高密度客户列表 */
 .list {
   flex: 1;
   padding-bottom: 160rpx;
 }
-.cust {
+.cust-list {
   background: #fff;
-  border-radius: 20rpx;
-  padding: 24rpx;
-  margin: 0 20rpx 16rpx;
-  box-shadow: 0 4rpx 14rpx rgba(22, 35, 58, 0.05);
+  border-top: 1rpx solid #eef1f6;
+  border-bottom: 1rpx solid #eef1f6;
 }
-.cust.pending {
-  box-shadow: 0 4rpx 14rpx rgba(22, 35, 58, 0.05), inset 0 0 0 2rpx rgba(214, 158, 46, 0.28);
+.cust-row {
+  padding: 18rpx 24rpx;
+  border-bottom: 1rpx solid #f0f3f7;
 }
-.c-hd {
+.cust-row:last-child {
+  border-bottom: none;
+}
+.cust-row:active {
+  background: #f8fafc;
+}
+.cust-row.pending {
+  padding-left: 18rpx;
+  border-left: 6rpx solid #f59e0b;
+  background: #fffdf7;
+}
+.row-top {
   display: flex;
-  align-items: flex-start;
-  gap: 12rpx;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
 }
-.c-name {
+.row-title {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 8rpx;
 }
 .name {
-  font-size: 30rpx;
+  display: block;
+  flex: 0 1 auto;
+  min-width: 0;
+  font-size: 28rpx;
   font-weight: 600;
   color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.tag {
-  font-size: 20rpx;
-  padding: 2rpx 10rpx;
+.badge {
+  flex: none;
+  font-size: 19rpx;
+  line-height: 1.5;
+  padding: 2rpx 8rpx;
   border-radius: 6rpx;
-  line-height: 1.6;
 }
-.tag-level {
+.badge-level {
   background: rgba(37, 99, 235, 0.08);
   color: #2563eb;
 }
-.tag-success {
-  background: rgba(22, 163, 74, 0.1);
-  color: #16a34a;
+.badge-warning {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
 }
-.tag-warning {
-  background: rgba(234, 88, 12, 0.1);
-  color: #ea580c;
-}
-.tag-danger {
+.badge-danger {
   background: rgba(220, 38, 38, 0.1);
   color: #dc2626;
 }
-.tag-grey {
+.badge-grey {
   background: #f3f4f6;
   color: #6b7280;
 }
-.c-debt {
+.row-debt {
   flex: none;
-  text-align: right;
 }
-.debt {
-  display: block;
-  font-size: 30rpx;
+.debt-amt {
+  font-size: 28rpx;
   font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: #1f2937;
-}
-.debt.owe {
   color: #c9343d;
+  font-variant-numeric: tabular-nums;
 }
-.debt.zero {
-  font-size: 24rpx;
-  font-weight: 500;
-  color: #9aa6b6;
+.debt-none {
+  font-size: 22rpx;
+  font-weight: 400;
+  color: #b0b8c5;
 }
-.debt-label {
-  font-size: 19rpx;
-  color: #a3aebd;
-}
-.c-meta {
+.row-sub {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8rpx;
-  margin-top: 12rpx;
-  font-size: 23rpx;
-  color: #7d8ba0;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 8rpx;
 }
-.c-meta .town {
-  color: #4b5563;
-  font-weight: 600;
-}
-.c-meta .sep {
-  color: #d4dae3;
-}
-.c-foot {
-  display: flex;
-  align-items: center;
-  gap: 12rpx;
-  margin-top: 16rpx;
-  padding-top: 14rpx;
-  border-top: 1rpx solid #f2f5f9;
-}
-.who {
+.row-meta {
   flex: 1;
   min-width: 0;
-  font-size: 21rpx;
-  color: #9aa6b6;
+  font-size: 22rpx;
+  color: #8c96a6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.acts {
-  display: flex;
-  gap: 12rpx;
+.row-meta .town {
+  color: #4b5563;
+  font-weight: 500;
 }
-.mini {
-  height: 52rpx;
-  padding: 0 20rpx;
+.row-acts {
+  flex: none;
   display: flex;
   align-items: center;
-  border-radius: 26rpx;
-  font-size: 22rpx;
+  gap: 10rpx;
+}
+.a-btn {
+  height: 44rpx;
+  padding: 0 16rpx;
+  display: flex;
+  align-items: center;
+  border-radius: 22rpx;
+  font-size: 21rpx;
   font-weight: 600;
+  line-height: 1;
+  box-sizing: border-box;
 }
-.mini.call {
-  color: #2563eb;
-  background: #f2f7ff;
-}
-.mini.ok {
-  color: #fff;
+.a-btn.audit {
   background: #2563eb;
+  color: #fff;
+}
+.a-btn.call {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1rpx solid rgba(37, 99, 235, 0.16);
 }
 
 /* 空态与加载 */
@@ -997,14 +1229,15 @@ onReachBottom(() => {
 /* FAB */
 .fab {
   position: fixed;
-  right: 32rpx;
-  bottom: 140rpx;
-  height: 88rpx;
-  padding: 0 30rpx 0 24rpx;
+  right: 28rpx;
+  bottom: 130rpx;
+  z-index: 15;
+  height: 76rpx;
+  padding: 0 26rpx 0 20rpx;
   display: flex;
   align-items: center;
   gap: 10rpx;
-  border-radius: 44rpx;
+  border-radius: 38rpx;
   background: linear-gradient(135deg, #3b82f6, #2563eb);
   box-shadow: 0 12rpx 28rpx rgba(37, 99, 235, 0.32);
   color: #fff;
@@ -1130,30 +1363,6 @@ onReachBottom(() => {
   background: #c7d6ef;
 }
 
-/* 常用路线快捷栏 */
-.route-bar {
-  margin-top: 12rpx;
-  white-space: nowrap;
-}
-.route-line {
-  display: inline-flex;
-  gap: 12rpx;
-  padding-bottom: 4rpx;
-}
-.rchip {
-  flex: none;
-  padding: 8rpx 22rpx;
-  border-radius: 26rpx;
-  background: #f3f5f9;
-  color: #5f6d82;
-  font-size: 23rpx;
-}
-.rchip.on {
-  background: rgba(37, 99, 235, 0.12);
-  color: #2563eb;
-  font-weight: 600;
-}
-
 /* 新建客户扩展字段 */
 .fld-row {
   display: flex;
@@ -1170,17 +1379,6 @@ onReachBottom(() => {
   font-size: 24rpx;
   font-weight: 700;
   color: #374151;
-}
-.fld-textarea {
-  width: 100%;
-  min-height: 112rpx;
-  padding: 16rpx 22rpx;
-  background: #fbfcfe;
-  border: 2rpx solid #e8ecf2;
-  border-radius: 14rpx;
-  font-size: 26rpx;
-  color: #1f2937;
-  line-height: 1.5;
 }
 .fld-pick {
   width: 100%;
@@ -1223,60 +1421,4 @@ onReachBottom(() => {
   color: #94a3b8;
 }
 
-/* 地区级联弹层 */
-.mask-sub {
-  z-index: 1001;
-}
-.sheet-sub {
-  z-index: 1002;
-}
-.rp-crumbs {
-  flex: none;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8rpx;
-  padding: 16rpx 32rpx;
-  background: #f8fafc;
-  border-bottom: 1rpx solid #f1f5f9;
-  font-size: 24rpx;
-}
-.rp-crumb {
-  color: #64748b;
-}
-.rp-crumb.on {
-  color: #2563eb;
-  font-weight: 600;
-}
-.rp-sep {
-  color: #cbd5e1;
-}
-.rp-body {
-  height: 52vh;
-  max-height: calc(82vh - 280rpx);
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
-.rp-list {
-  padding: 8rpx 0 20rpx;
-}
-.rp-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 24rpx 32rpx;
-  border-bottom: 1rpx solid #f4f6f9;
-  font-size: 27rpx;
-  color: #1f2937;
-}
-.rp-arrow {
-  font-size: 32rpx;
-  color: #9ca3af;
-}
-.rp-empty {
-  padding: 64rpx 32rpx;
-  text-align: center;
-  font-size: 24rpx;
-  color: #94a3b8;
-}
 </style>

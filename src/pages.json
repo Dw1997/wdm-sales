@@ -196,6 +196,46 @@
       "style": {
         "navigationBarTitleText": "支付记录"
       }
+    },
+    {
+      "path": "pages/purchase/plan",
+      "style": {
+        "navigationBarTitleText": "采购清单",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/purchase/receipts",
+      "style": {
+        "navigationBarTitleText": "采购入库",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/purchase/receipt-form",
+      "style": {
+        "navigationBarTitleText": "新建采购入库"
+      }
+    },
+    {
+      "path": "pages/purchase/receipt-detail",
+      "style": {
+        "navigationBarTitleText": "进货单详情"
+      }
+    },
+    {
+      "path": "pages/purchase/vendor-payments",
+      "style": {
+        "navigationBarTitleText": "供应商付款",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/purchase/vendor-ledger",
+      "style": {
+        "navigationBarTitleText": "供应商往来",
+        "enablePullDownRefresh": true
+      }
     }
   ],
   "subPackages": [

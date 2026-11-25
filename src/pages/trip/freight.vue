@@ -188,6 +188,7 @@ const today = ymd(0)
 const tomorrow = ymd(1)
 const day = ref(0)
 const view = ref<'list' | 'detail'>('list')
+const directDetail = ref(false)
 const shipments = ref<FreightShipment[]>([])
 const detail = ref<FreightShipmentDetail | null>(null)
 const loading = ref(true)
@@ -305,23 +306,32 @@ async function loadDetail(id: number) {
 onLoad(async (opts) => {
   auth.restore()
   refreshPendingCount()
-  await loadList()
   const id = Number((opts as Record<string, string>)?.id || 0)
   if (id) {
+    directDetail.value = true
     view.value = 'detail'
+    loading.value = false
     loadDetail(id).catch(() => {
+      directDetail.value = false
       view.value = 'list'
+      loadList()
     })
+    return
   }
+  await loadList()
 })
 
 onPullDownRefresh(async () => {
-  await loadList()
+  if (view.value === 'detail' && detail.value) {
+    await loadDetail(detail.value.id).catch(() => undefined)
+  } else {
+    await loadList()
+  }
   uni.stopPullDownRefresh()
 })
 
 onBackPress(() => {
-  if (view.value === 'detail') {
+  if (view.value === 'detail' && !directDetail.value) {
     view.value = 'list'
     uni.setNavigationBarTitle({ title: '物流批次' })
     return true

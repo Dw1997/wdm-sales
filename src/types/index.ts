@@ -126,6 +126,8 @@ export interface Sku {
   base_unit?: string | null
   category_id?: number | null
   category_path?: string | null
+  /** 仅管理员返回：SKU 成本价。 */
+  cost_price?: Money | null
 }
 
 export interface QuoteItem {
@@ -417,6 +419,209 @@ export interface OrderResult {
   warnings: Warn[]
 }
 
+// ---------- 供应商 ----------
+export type VendorType = 'market' | 'origin' | 'manufacturer'
+
+export interface Vendor {
+  id: number
+  name: string
+  type: VendorType
+  phone?: string | null
+  contact_name?: string | null
+  contact_phone?: string | null
+  status: 'active' | 'order_disabled' | 'login_disabled'
+  province?: string | null
+  city?: string | null
+  district?: string | null
+  town?: string | null
+  detail_address?: string | null
+  wechat_bound?: boolean
+  created_at?: string
+  updated_at?: string
+}
+
+/** 供应商应付列表项。 */
+export interface VendorPayableItem {
+  vendor_id: number
+  name: string
+  type: VendorType
+  phone?: string | null
+  contact_name?: string | null
+  contact_phone?: string | null
+  payable_balance: Money
+  last_paid_at?: string | null
+}
+
+export interface VendorPayablePage {
+  items: VendorPayableItem[]
+  total: number
+  page: number
+  page_size: number
+  total_payable: Money
+  owed_count: number
+}
+
+/** 供应商往来账户概览。 */
+export interface VendorAccount {
+  vendor_id: number
+  vendor_name: string
+  payable_balance: Money
+  total_purchases: Money
+  total_payments: Money
+  linked_customer_id?: number | null
+  linked_customer_name?: string | null
+  customer_ar_balance?: Money | null
+}
+
+export type VendorLedgerType =
+  | 'purchase'
+  | 'payment'
+  | 'purchase_return'
+  | 'offset'
+  | 'correction_reversal'
+  | 'correction_new'
+
+export interface VendorLedgerItem {
+  id: number
+  type: VendorLedgerType
+  amount: Money
+  balance_after: Money
+  purchase_receipt_id?: number | null
+  order_id?: number | null
+  vendor_payment_id?: number | null
+  offset_id?: number | null
+  occurred_at: string
+  operator_name?: string | null
+  remark?: string | null
+  proof_images?: string[] | null
+}
+
+export type VendorPayMethod = 'cash' | 'wechat' | 'alipay' | 'other'
+
+export interface VendorPaymentPayload {
+  vendor_id: number
+  amount: number | string
+  method: VendorPayMethod
+  paid_at?: string | null
+  remark?: string | null
+  proof_images?: string[] | null
+}
+
+export interface VendorPaymentRecord {
+  id: number
+  vendor_id: number
+  amount: Money
+  method: VendorPayMethod
+  paid_at: string
+  remark?: string | null
+  proof_images?: string[] | null
+}
+
+export interface VendorPaymentResult {
+  payment: VendorPaymentRecord
+  payable_balance: Money
+  warnings: Warn[]
+}
+
+// ---------- 采购入库（purchases.md） ----------
+export type PurchaseSourceType = 'stock' | 'order' | 'return'
+export type PurchaseStatus = 'draft' | 'confirmed' | 'cancelled'
+export type PurchasePayMethod = 'cash' | 'wechat' | 'alipay' | 'other'
+
+/** 采购明细入参：来源为订单时带 order_item_id，散货采购带 spu_id / sku_id。 */
+export interface PurchaseItemIn {
+  order_item_id?: number | null
+  spu_id?: number | null
+  sku_id?: number | null
+  quantity: number | string
+  unit_cost: number | string
+  update_cost?: boolean
+}
+
+/** 采购明细出参。 */
+export interface PurchaseReceiptItem {
+  id: number
+  order_item_id?: number | null
+  spu_id: number
+  spu_name: string
+  base_unit: string
+  sku_id?: number | null
+  sku_name?: string | null
+  quantity: Money
+  unit_cost: Money
+  amount: Money
+  update_cost: boolean
+}
+
+/** 已确认采购单的修正记录。 */
+export interface PurchaseCorrection {
+  id?: number
+  action?: string
+  reason?: string
+  created_at?: string
+  operator_name?: string
+  [k: string]: unknown
+}
+
+/** 采购入库单（PurchaseOut）。 */
+export interface PurchaseReceipt {
+  id: number
+  source_type: PurchaseSourceType
+  vendor_id: number
+  vendor_name: string
+  order_id?: number | null
+  order_no?: string | null
+  status: PurchaseStatus
+  purchased_at?: string | null
+  confirmed_at?: string | null
+  photos?: string[] | null
+  items: PurchaseReceiptItem[]
+  total_amount: Money
+  paid_amount: Money
+  version: number
+  created_at: string
+  remark?: string | null
+  corrections?: PurchaseCorrection[]
+}
+
+/** 新建采购入库（PurchaseCreate）。 */
+export interface PurchaseCreatePayload {
+  source_type: 'stock' | 'order'
+  vendor_id: number
+  purchased_at?: string | null
+  photos?: string[] | null
+  items: PurchaseItemIn[]
+  remark?: string | null
+}
+
+/** 修改采购入库（PurchaseUpdate）：整单改明细，或按 item_id 改单行成本。 */
+export interface PurchaseUpdatePayload {
+  version: number
+  vendor_id?: number
+  purchased_at?: string | null
+  photos?: string[] | null
+  items?: PurchaseItemIn[]
+  remark?: string | null
+  item_id?: number
+  unit_cost?: number | string
+  reason?: string
+}
+
+/** 确认采购入库（PurchaseConfirm）。 */
+export interface PurchaseConfirmPayload {
+  version: number
+  payment?: { method: PurchasePayMethod; amount: number | string } | null
+}
+
+/** 采购入库结果（PurchaseResult）。 */
+export interface PurchaseResult {
+  purchase_receipt: PurchaseReceipt
+  order?: Order | null
+  vendor_balance?: Money | null
+  vendor_balances?: Record<string, Money> | null
+  warnings?: Warn[]
+}
+
 // ---------- 消息 ----------
 export interface Message {
   id: number
@@ -468,6 +673,7 @@ export interface DashboardOverview {
     ar_customer_count: number
     ar_overdue_total: Money
     ar_overdue_buckets: { key: string; amount: Money }[]
+    ap_total: Money
     ap_overdue_total: Money
     month_profit: {
       month: string
@@ -502,7 +708,7 @@ export interface RouteStop {
   region_name: string
   parent_region_name?: string | null
   seq: number
-  origin: string
+  origin: RouteStopOrigin
   customer_count: number
 }
 
@@ -576,7 +782,7 @@ export interface CallListCustomer {
 }
 
 // ---------- 出车草稿 / 安排出车（delivery.md §3） ----------
-export type RouteStopOrigin = 'manual' | 'template' | 'auto'
+export type RouteStopOrigin = 'county' | 'corridor' | 'manual'
 
 export interface RouteStopIn {
   region_id: number
@@ -628,7 +834,7 @@ export interface RouteTripDraft {
 
 export interface RouteTripCreatePayload {
   trip_date: string
-  name?: string
+  name?: string | null
   owner_id: number
   template_id?: number | null
   stops: RouteStopIn[]
@@ -1129,4 +1335,107 @@ export interface CreditApplication {
   reviewed_at?: string | null
   review_comment?: string | null
   created_at?: string | null
+}
+
+// ---------- 采购清单（stock.md §4–§5） ----------
+export type PurchasePlanScopeMode = 'all_pending' | 'route_trip' | 'freight_shipment' | 'date'
+
+export interface PurchasePlanSupplierOverride {
+  spu_id: number
+  sku_id?: number | null
+  supplier_id: number
+}
+
+export interface PurchasePlanPreviewPayload {
+  route_trip_id?: number | null
+  freight_shipment_id?: number | null
+  date?: string | null
+  supplier_id?: number | null
+  include_self_shortage?: boolean
+  supplier_overrides?: PurchasePlanSupplierOverride[]
+}
+
+export interface PurchasePlanOrderRef {
+  order_id: number
+  order_no: string
+  customer_name: string
+  order_item_id: number
+  quantity: string
+  unit: string
+  unit_cost: Money
+  purchase_receipt_id: number | null
+  receipt_status: string | null
+  receipt_version: number | null
+  vendor_id: number
+  vendor_name: string
+}
+
+export interface PurchasePlanItem {
+  item_key: string
+  spu_id: number
+  spu_name: string
+  sku_id: number | null
+  sku_name: string
+  supply_mode: 'temp_pick' | 'self' | string
+  unit: string
+  base_unit: string
+  base_qty: string
+  required_quantity: string
+  on_hand: string | null
+  shortage_quantity: string
+  suggested_unit_cost: Money
+  estimated_amount: Money
+  display: string
+  can_create_receipt: boolean
+  has_auto_receipt: boolean
+  order_nos: string[]
+  orders: PurchasePlanOrderRef[]
+}
+
+export interface PurchasePlanGroup {
+  supplier_id: number
+  supplier_name: string
+  supplier_phone: string | null
+  supplier_address: string | null
+  item_count: number
+  estimated_amount: Money
+  can_create_receipt: boolean
+  items: PurchasePlanItem[]
+}
+
+export interface PurchasePlanPreviewResult {
+  scope: {
+    mode: PurchasePlanScopeMode
+    label: string
+    route_trip_id?: number | null
+    freight_shipment_id?: number | null
+    date?: string | null
+  }
+  include_self_shortage: boolean
+  summary: {
+    supplier_count: number
+    item_count: number
+    order_count: number
+    estimated_amount: Money
+  }
+  groups: PurchasePlanGroup[]
+}
+
+export interface PurchasePlanToReceiptsPayload {
+  groups: {
+    supplier_id: number
+    items: {
+      spu_id: number
+      sku_id?: number | null
+      quantity: string
+      unit_cost?: string
+    }[]
+  }[]
+  purchased_at?: string
+  remark?: string
+}
+
+export interface PurchasePlanToReceiptsResult {
+  receipts: PurchaseReceipt[]
+  warnings: Warn[]
 }

@@ -9,8 +9,12 @@ import type {
   OrderStatus,
   PayStatus,
   PriceSource,
+  PurchaseSourceType,
+  PurchaseStatus,
   RouteTripStatus,
   TripOrderStatus,
+  VendorLedgerType,
+  VendorType,
 } from '@/types'
 
 export const ORDER_STATUS: Record<OrderStatus, { label: string; type: string }> = {
@@ -26,6 +30,13 @@ export const PAY_STATUS: Record<PayStatus, { label: string; type: string }> = {
   unpaid: { label: '未收款', type: 'warning' },
   partial: { label: '部分收款', type: 'primary' },
   paid: { label: '已结清', type: 'success' },
+}
+
+export const COUPON_TYPE: Record<string, string> = {
+  festival: '节日券',
+  freight_subsidy: '运费补贴',
+  diff_subsidy: '差额补贴',
+  referral_reward: '拉新奖励',
 }
 
 export const PAYMENT_METHOD: Record<string, string> = {
@@ -115,4 +126,40 @@ export const FREIGHT_FEE_HINT: Record<FreightMode, string> = {
   store_paid: '本店付运费',
   customer_paid: '运费到付',
   none: '—',
+}
+
+// ---------- 采购入库 ----------
+export const PURCHASE_SOURCE_TYPE: Record<PurchaseSourceType, { label: string; type: string }> = {
+  stock: { label: '采购入库', type: 'success' },
+  order: { label: '临时拿货', type: 'info' },
+  return: { label: '退回供应商', type: 'warning' },
+}
+
+export const PURCHASE_STATUS: Record<PurchaseStatus, { label: string; type: string }> = {
+  draft: { label: '草稿', type: 'warning' },
+  confirmed: { label: '已确认', type: 'success' },
+  cancelled: { label: '已取消', type: 'grey' },
+}
+
+export const PURCHASE_PAY_METHODS = [
+  { label: '微信', value: 'wechat' },
+  { label: '现金', value: 'cash' },
+  { label: '支付宝', value: 'alipay' },
+  { label: '其他', value: 'other' },
+] as const
+
+// ---------- 供应商付款 ----------
+export const VENDOR_TYPE: Record<VendorType, { label: string; type: string }> = {
+  market: { label: '市场', type: 'primary' },
+  origin: { label: '产地', type: 'success' },
+  manufacturer: { label: '厂家', type: 'info' },
+}
+
+export const VENDOR_LEDGER_TYPE: Record<VendorLedgerType, { label: string; type: string }> = {
+  purchase: { label: '进货', type: 'danger' },
+  payment: { label: '付款', type: 'success' },
+  purchase_return: { label: '退回供应商', type: 'warning' },
+  offset: { label: '往来对冲', type: 'info' },
+  correction_reversal: { label: '更正冲回', type: 'grey' },
+  correction_new: { label: '更正重记', type: 'primary' },
 }

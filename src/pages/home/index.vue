@@ -103,7 +103,7 @@
           <view v-if="!todayTrips.length" class="trip empty">
             <text class="trip-name empty">今天没有出车安排</text>
             <text class="trip-sub">安排线路后，客户订单才能挂趟</text>
-            <view class="trip-go" @tap="goTrips">去安排 ›</view>
+            <view class="trip-go" @tap="goPlan">去安排 ›</view>
           </view>
         </view>
 
@@ -636,6 +636,7 @@ function goOrders() { uni.navigateTo({ url: '/pages/order/history' }) }
 function goPayments() { uni.navigateTo({ url: '/pages/finance/payments' }) }
 function goPriceQuery() { uni.navigateTo({ url: '/pages/customers/price-query' }) }
 function goTrips() { uni.switchTab({ url: '/pages/trip/index' }) }
+function goPlan() { uni.navigateTo({ url: '/pages/trip/plan' }) }
 function goOrderDetail(id: number) { uni.navigateTo({ url: `/pages/order/detail?id=${id}` }) }
 function goProfitHint() { uni.showToast({ title: '利润明细在 Web 成本中心', icon: 'none' }) }
 function goDebtHint() { uni.showToast({ title: '欠款明细在 Web 客户账期', icon: 'none' }) }

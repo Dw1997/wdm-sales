@@ -22,7 +22,7 @@ export const useAuthStore = defineStore('auth', () => {
   })
 
   function can(code: string): boolean {
-    return permissions.value.includes(code)
+    return permissions.value.includes('*') || permissions.value.includes(code)
   }
 
   function restore() {
