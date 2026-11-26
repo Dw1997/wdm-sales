@@ -102,12 +102,15 @@ function handleUnauthorized() {
   })
 }
 
-async function doRefresh(): Promise<boolean> {
+/** 'unauthorized' 才踢登录；'network_error' 只提示重试，绝不清 token。 */
+type RefreshStatus = 'ok' | 'unauthorized' | 'network_error'
+
+async function doRefresh(): Promise<RefreshStatus> {
   const refreshToken =
     authCallbacks.getRefreshToken?.() || (uni.getStorageSync(REFRESH_KEY) as string) || ''
-  if (!refreshToken) return false
+  if (!refreshToken) return 'unauthorized'
 
-  const result = await new Promise<{ access: string; refresh: string } | null>((resolve) => {
+  return await new Promise<RefreshStatus>((resolve) => {
     uni.request({
       url: `${BASE_URL}/auth/refresh`,
       method: 'POST',
@@ -115,8 +118,12 @@ async function doRefresh(): Promise<boolean> {
       header: { 'Content-Type': 'application/json' },
       success: (res) => {
         const status = res.statusCode || 200
+        if (status === 401 || status === 403) {
+          resolve('unauthorized')
+          return
+        }
         if (status < 200 || status >= 300) {
-          resolve(null)
+          resolve('network_error')
           return
         }
         const body = res.data as Envelope<Record<string, unknown>> | Record<string, unknown> | undefined
@@ -126,26 +133,27 @@ async function doRefresh(): Promise<boolean> {
             : (body as Record<string, unknown> | undefined)
         const access = payload && typeof payload.access_token === 'string' ? payload.access_token : ''
         const refresh = payload && typeof payload.refresh_token === 'string' ? payload.refresh_token : ''
-        resolve(access ? { access, refresh } : null)
+        if (!access) {
+          resolve('network_error')
+          return
+        }
+        uni.setStorageSync(ACCESS_KEY, access)
+        if (refresh) uni.setStorageSync(REFRESH_KEY, refresh)
+        authCallbacks.onTokensRefreshed?.(access, refresh || undefined)
+        resolve('ok')
       },
-      fail: () => resolve(null),
+      fail: () => resolve('network_error'),
     })
   })
-
-  if (!result) return false
-  uni.setStorageSync(ACCESS_KEY, result.access)
-  if (result.refresh) uni.setStorageSync(REFRESH_KEY, result.refresh)
-  authCallbacks.onTokensRefreshed?.(result.access, result.refresh || undefined)
-  return true
 }
 
-let refreshPromise: Promise<boolean> | null = null
+let refreshPromise: Promise<RefreshStatus> | null = null
 
 /** 并发 401 只发一次 /auth/refresh，其余请求共享同一个 Promise。 */
-export function tryRefreshToken(): Promise<boolean> {
+export function tryRefreshToken(): Promise<RefreshStatus> {
   if (!refreshPromise) {
     refreshPromise = doRefresh()
-      .catch(() => false)
+      .catch(() => 'network_error' as const)
       .finally(() => {
         refreshPromise = null
       })
@@ -217,8 +225,8 @@ export async function request<T = unknown>(opts: RequestOptions): Promise<T> {
     let outcome = await sendRequest<T>(opts, method, effectiveIdempotencyKey)
 
     if (!outcome.ok && outcome.status === 401 && canRefresh(opts)) {
-      const refreshed = await tryRefreshToken()
-      if (refreshed) {
+      const refreshStatus = await tryRefreshToken()
+      if (refreshStatus === 'ok') {
         // showLoading: false —— 复用外层已展示的 loading，保持 show/hide 一一配对
         return await request<T>({
           ...opts,
@@ -227,7 +235,16 @@ export async function request<T = unknown>(opts: RequestOptions): Promise<T> {
           showLoading: false,
         })
       }
+      if (refreshStatus === 'network_error') {
+        // 弱网/断网：token 仍可能有效，绝不能踢回登录页
+        if (!opts.silent) uni.showToast({ title: '网络异常，请稍后重试', icon: 'none' })
+        throw new Error('网络异常，请稍后重试')
+      }
       handleUnauthorized()
+      throw Object.assign(new Error(outcome.message || '登录已过期，请重新登录'), {
+        status: outcome.status,
+        body: outcome.body,
+      })
     }
 
     if (outcome.ok) return outcome.data as T
@@ -302,9 +319,17 @@ export async function uploadImage(
     let outcome = await sendUpload(filePath)
 
     if (!outcome.ok && outcome.status === 401) {
-      const refreshed = await tryRefreshToken()
-      if (refreshed) outcome = await sendUpload(filePath)
-      if (!outcome.ok && outcome.status === 401) handleUnauthorized()
+      const refreshStatus = await tryRefreshToken()
+      if (refreshStatus === 'ok') {
+        outcome = await sendUpload(filePath)
+        if (!outcome.ok && outcome.status === 401) handleUnauthorized()
+      } else if (refreshStatus === 'unauthorized') {
+        handleUnauthorized()
+      } else {
+        // 弱网/断网：token 仍可能有效，绝不能踢回登录页
+        uni.showToast({ title: '网络异常，请稍后重试', icon: 'none' })
+        throw new Error('网络异常，请稍后重试')
+      }
     }
 
     if (outcome.ok) return { url: outcome.url as string }
